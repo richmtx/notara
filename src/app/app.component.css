@@ -1,0 +1,6 @@
+.layout {
+    display: grid;
+    grid-template-columns: 220px 300px 1fr;
+    height: 100vh;
+    overflow: hidden;
+}

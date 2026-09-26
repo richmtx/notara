@@ -1,12 +1,17 @@
-import { Component } from '@angular/core';
-import { RouterOutlet } from '@angular/router';
+import { Component, inject, OnInit } from '@angular/core';
+import { NotesService } from './core/notes.service';
 
 @Component({
   selector: 'app-root',
-  imports: [RouterOutlet],
+  standalone: true,
+  imports: [],
   templateUrl: './app.component.html',
-  styleUrl: './app.component.css'
+  styleUrl: './app.component.css',
 })
-export class AppComponent {
-  title = 'notara';
+export class AppComponent implements OnInit {
+  notes = inject(NotesService);
+
+  async ngOnInit(): Promise<void> {
+    await this.notes.inicializar();
+  }
 }
