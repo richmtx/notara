@@ -1,0 +1,50 @@
+@if (notes.notaActiva(); as nota) {
+<article class="visor">
+    <header class="barra">
+        <button class="primario" disabled>
+            <i class="ti ti-plus"></i>
+            <span>Nueva nota</span>
+        </button>
+        <span class="divisor"></span>
+        <div class="acciones">
+            <button disabled title="Editar"><i class="ti ti-pencil"></i></button>
+            <button disabled title="Favorito"><i class="ti ti-star"></i></button>
+            <button disabled title="Eliminar"><i class="ti ti-trash"></i></button>
+            <button disabled title="Más opciones"><i class="ti ti-dots-vertical"></i></button>
+        </div>
+    </header>
+
+    <div class="cuerpo">
+        <h1>{{ nota.titulo }}</h1>
+        <p class="meta">
+            {{ notes.categoriaActiva()?.nombre }}
+            <span class="sep">|</span>
+            Editada el {{ nota.editadaEn | date: "d 'de' MMMM 'de' y" }}
+        </p>
+
+        <div class="contenido" [innerHTML]="notes.contenidoHtml()"></div>
+
+        <div class="etiquetas">
+            <p class="titulo-etiquetas">Etiquetas</p>
+            <div class="fila-tags">
+                <div class="tags">
+                    @for (tag of nota.tags; track tag) {
+                    <span class="tag">
+                        {{ tag }}
+                        <button class="quitar" disabled title="Quitar etiqueta">
+                            <i class="ti ti-x"></i>
+                        </button>
+                    </span>
+                    }
+                </div>
+                <button class="agregar" disabled>
+                    <i class="ti ti-circle-plus"></i>
+                    <span>Agregar etiqueta</span>
+                </button>
+            </div>
+        </div>
+    </div>
+</article>
+} @else {
+<div class="sin-nota">Selecciona una nota para leerla.</div>
+}

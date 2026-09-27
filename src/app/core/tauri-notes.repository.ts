@@ -34,17 +34,30 @@ export class TauriNotesRepository implements NotesRepository {
                 nombre: 'Sin categoría',
                 icono: 'inbox',
                 carpeta: '',
+                total: sueltos.length,
             });
         }
 
         for (const entrada of entradas) {
             if (!entrada.isDirectory) continue;
             if (entrada.name.startsWith('.')) continue;
+
+            let total = 0;
+            try {
+                const hijos = await readDir(`${raiz}\\${entrada.name}`);
+                total = hijos.filter(
+                    (h) => h.isFile && EXTENSIONES.some((ext) => h.name.toLowerCase().endsWith(ext))
+                ).length;
+            } catch {
+                total = 0;
+            }
+
             categorias.push({
                 id: entrada.name,
                 nombre: entrada.name,
                 icono: 'folder',
                 carpeta: entrada.name,
+                total,
             });
         }
 

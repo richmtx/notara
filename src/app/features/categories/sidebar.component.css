@@ -1,0 +1,155 @@
+.sidebar {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    padding: 18px 12px;
+    border-right: 1px solid var(--border);
+    background: var(--bg-sidebar);
+}
+
+.marca {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 0 8px 22px;
+}
+
+.logo {
+    width: 18px;
+    height: 18px;
+    border-radius: 4px;
+    background: var(--accent);
+}
+
+.nombre {
+    font-weight: 700;
+    font-size: 15px;
+}
+
+nav {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    padding: 10px;
+    border: none;
+    background: none;
+    border-radius: var(--radius);
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--text-muted);
+    text-align: left;
+}
+
+.item i {
+    font-size: 17px;
+}
+
+.etiqueta {
+    flex: 1;
+}
+
+.item:hover {
+    background: var(--hover);
+}
+
+.item.activo {
+    background: var(--accent-soft);
+    color: var(--text);
+    font-weight: 700;
+}
+
+.conteo {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-muted);
+}
+
+.vacio {
+    font-size: 13px;
+    color: var(--text-muted);
+    padding: 0 10px;
+}
+
+footer {
+    margin-top: auto;
+    padding-top: 14px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.accion {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    padding: 9px 10px;
+    border: none;
+    background: none;
+    border-radius: var(--radius);
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-muted);
+    text-align: left;
+}
+
+.accion i {
+    font-size: 17px;
+}
+
+.accion:hover:not(:disabled) {
+    background: var(--hover);
+}
+
+.accion:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.sidebar.colapsado {
+    padding: 18px 8px;
+}
+
+.sidebar.colapsado .marca {
+    justify-content: center;
+    padding: 0 0 22px;
+}
+
+.sidebar.colapsado .item,
+.sidebar.colapsado .accion {
+    justify-content: center;
+    padding: 10px 0;
+}
+
+.toggle {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border: none;
+    background: none;
+    border-radius: var(--radius);
+    color: var(--text-muted);
+}
+
+.toggle i {
+    font-size: 18px;
+}
+
+.toggle:hover {
+    background: var(--hover);
+}
+
+.sidebar.colapsado .toggle {
+    margin-left: 0;
+}

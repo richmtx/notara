@@ -1,0 +1,30 @@
+<aside class="sidebar">
+    <div class="marca">
+        <span class="logo"></span>
+        <span class="nombre">Notara</span>
+    </div>
+
+    <nav>
+        @for (cat of notes.categorias(); track cat.id) {
+        <button class="item" [class.activo]="cat.id === notes.categoriaActivaId()"
+            (click)="notes.seleccionarCategoria(cat.id)">
+            <i class="ti" [class]="icono(cat.icono)"></i>
+            <span class="etiqueta">{{ cat.nombre }}</span>
+            <span class="conteo">{{ cat.total }}</span>
+        </button>
+        } @empty {
+        <p class="vacio">No hay categorías en esta carpeta.</p>
+        }
+    </nav>
+
+    <footer>
+        <button class="accion" disabled>
+            <i class="ti ti-circle-plus"></i>
+            <span>Nueva categoría</span>
+        </button>
+        <button class="accion" (click)="notes.elegirCarpeta()">
+            <i class="ti ti-folder"></i>
+            <span>Cambiar carpeta</span>
+        </button>
+    </footer>
+</aside>

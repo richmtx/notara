@@ -1,47 +1,13 @@
 @if (!notes.carpetaRaiz()) {
-<section class="bienvenida">
-  <h1>Notara</h1>
-  <p>Elige la carpeta donde viven tus notas.</p>
-  <button (click)="notes.elegirCarpeta()">Elegir carpeta</button>
-</section>
+  <app-welcome />
 } @else {
-<section class="prueba">
-  <p class="ruta">{{ notes.carpetaRaiz() }}</p>
-  <button (click)="notes.elegirCarpeta()">Cambiar carpeta</button>
-  <button (click)="notes.recargar()">Recargar</button>
+  <div class="layout">
+    <app-sidebar />
+    <app-note-list />
+    <app-note-viewer />
+  </div>
 
   @if (notes.error(); as err) {
-  <p class="error">{{ err }}</p>
+    <p class="error-global">{{ err }}</p>
   }
-
-  <h2>Categorías</h2>
-  <ul>
-    @for (cat of notes.categorias(); track cat.id) {
-    <li>
-      <button (click)="notes.seleccionarCategoria(cat.id)">{{ cat.nombre }}</button>
-    </li>
-    } @empty {
-    <li>No hay subcarpetas en esta ruta.</li>
-    }
-  </ul>
-
-  <h2>Notas de {{ notes.categoriaActiva()?.nombre }}</h2>
-  <ul>
-    @for (nota of notes.notasFiltradas(); track nota.id) {
-    <li>
-      <button (click)="notes.seleccionarNota(nota.id)">{{ nota.titulo }}</button>
-    </li>
-    } @empty {
-    <li>Sin notas aquí.</li>
-    }
-  </ul>
-
-  @if (notes.notaActiva(); as nota) {
-  <h2>{{ nota.titulo }}</h2>
-  @if (nota.tags.length) {
-  <p class="tags">{{ nota.tags.join(', ') }}</p>
-  }
-  <div class="contenido" [innerHTML]="notes.contenidoHtml()"></div>
-  }
-</section>
 }

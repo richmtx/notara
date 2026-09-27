@@ -1,10 +1,14 @@
 import { Component, inject, OnInit } from '@angular/core';
 import { NotesService } from './core/notes.service';
+import { SidebarComponent } from './features/categories/sidebar.component';
+import { NoteListComponent } from './features/notes/note-list.component';
+import { NoteViewerComponent } from './features/notes/note-viewer.component';
+import { WelcomeComponent } from './features/welcome/welcome.component';
 
 @Component({
   selector: 'app-root',
   standalone: true,
-  imports: [],
+  imports: [SidebarComponent, NoteListComponent, NoteViewerComponent, WelcomeComponent],
   templateUrl: './app.component.html',
   styleUrl: './app.component.css',
 })

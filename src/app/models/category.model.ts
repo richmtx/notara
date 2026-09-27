@@ -3,4 +3,5 @@ export interface Category {
     nombre: string;
     icono: string;
     carpeta: string;
+    total: number;
 }

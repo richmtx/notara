@@ -4,10 +4,10 @@ import { Note } from '../models/note.model';
 import { Category } from '../models/category.model';
 
 const CATEGORIAS: Category[] = [
-    { id: 'trabajo', nombre: 'Trabajo', icono: 'briefcase', carpeta: 'Trabajo' },
-    { id: 'aws', nombre: 'AWS', icono: 'cloud', carpeta: 'AWS' },
-    { id: 'proyectos', nombre: 'Proyectos', icono: 'code', carpeta: 'Proyectos' },
-    { id: 'personal', nombre: 'Personal', icono: 'user', carpeta: 'Personal' },
+    { id: 'trabajo', nombre: 'Trabajo', icono: 'briefcase', carpeta: 'Trabajo', total: 2 },
+    { id: 'aws', nombre: 'AWS', icono: 'cloud', carpeta: 'AWS', total: 1 },
+    { id: 'proyectos', nombre: 'Proyectos', icono: 'code', carpeta: 'Proyectos', total: 1 },
+    { id: 'personal', nombre: 'Personal', icono: 'user', carpeta: 'Personal', total: 0 },
 ];
 
 const NOTAS: Note[] = [

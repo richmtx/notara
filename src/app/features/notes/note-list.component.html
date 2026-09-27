@@ -1,0 +1,32 @@
+<section class="lista">
+    <div class="buscador">
+        <div class="campo">
+            <i class="ti ti-search"></i>
+            <input type="text" [placeholder]="'Buscar notas en ' + (notes.categoriaActiva()?.nombre ?? 'todo') + '...'"
+                [ngModel]="notes.filtroBusqueda()" (ngModelChange)="notes.filtroBusqueda.set($event)" />
+        </div>
+        <button class="filtro" disabled title="Ordenar">
+            <i class="ti ti-arrows-sort"></i>
+        </button>
+    </div>
+
+    <div class="items">
+        @for (nota of notes.notasFiltradas(); track nota.id) {
+        <button class="item" [class.activo]="nota.id === notes.notaActivaId()" (click)="notes.seleccionarNota(nota.id)">
+            <div class="fila">
+                <span class="titulo">{{ nota.titulo }}</span>
+                <span class="fecha">{{ nota.editadaEn | date: 'd MMM y' }}</span>
+            </div>
+            <p class="preview">{{ preview(nota.contenido) }}</p>
+        </button>
+        } @empty {
+        <p class="vacio">
+            @if (notes.filtroBusqueda()) {
+            Sin resultados para esa búsqueda.
+            } @else {
+            No hay notas en esta categoría.
+            }
+        </p>
+        }
+    </div>
+</section>
