@@ -5,14 +5,38 @@ import { Category } from '../models/category.model';
 export interface Restauracion {
     // Categoría donde quedó la nota.
     categoriaId: string;
-    // La categoría de origen ya no existe y la nota se restauró en la raíz.
-    categoriaPerdida: boolean;
+    // La categoría de origen ya no existía y se volvió a crear para recibir la nota.
+    categoriaRecreada: boolean;
+}
+
+export interface ContenidoCategoria {
+    notas: number;
+    // Nombres de lo que hay en la carpeta y Notara no gestiona: subcarpetas, imágenes, otros archivos.
+    ajenos: string[];
+}
+
+export interface EliminacionCategoria {
+    // La carpeta ya no existe.
+    eliminada: boolean;
+    // Notas que pasaron a la papelera.
+    movidas: number;
+    // Notas que siguen en la carpeta.
+    pendientes: number;
+    // Si hay contenido ajeno no se toca nada: ni la carpeta ni sus notas.
+    ajenos: string[];
+    // Por qué quedó a medias, cuando falló después de empezar.
+    motivo?: string;
 }
 
 export interface NotesRepository {
     listarCategorias(): Promise<Category[]>;
     // Falla si ya existe una carpeta con ese nombre. El nombre llega ya saneado.
     crearCategoria(nombre: string): Promise<Category>;
+    contenidoCategoria(id: string): Promise<ContenidoCategoria>;
+    // Mueve las notas de la categoría a la papelera, como eliminarNota, y borra la carpeta.
+    // Nunca borra una nota ni nada que no sea una nota. Un resultado a medias no es una
+    // excepción: se devuelve para poder contar qué se movió y qué no.
+    eliminarCategoria(id: string): Promise<EliminacionCategoria>;
     listarNotas(categoriaId: string): Promise<Note[]>;
     // Notas marcadas como favoritas en cualquier categoría.
     listarFavoritas(): Promise<Note[]>;

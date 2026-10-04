@@ -1,5 +1,5 @@
 import { Injectable } from '@angular/core';
-import { NotesRepository, Restauracion } from './notes.repository';
+import { ContenidoCategoria, EliminacionCategoria, NotesRepository, Restauracion } from './notes.repository';
 import { Note } from '../models/note.model';
 import { Category, SIN_CATEGORIA } from '../models/category.model';
 
@@ -63,6 +63,7 @@ export class MockNotesRepository implements NotesRepository {
     private notas = [...NOTAS];
     private categorias = [...CATEGORIAS];
     private papelera: Note[] = [];
+    private ultimoGuardado = 0;
 
     async listarCategorias(): Promise<Category[]> {
         return this.categorias.map((c) => ({
@@ -78,6 +79,25 @@ export class MockNotesRepository implements NotesRepository {
         const creada: Category = { id: nombre, nombre, icono: 'folder', carpeta: nombre, total: 0 };
         this.categorias.push(creada);
         return creada;
+    }
+
+    async contenidoCategoria(id: string): Promise<ContenidoCategoria> {
+        return { notas: this.notas.filter((n) => n.categoriaId === id).length, ajenos: [] };
+    }
+
+    async eliminarCategoria(id: string): Promise<EliminacionCategoria> {
+        const notas = this.notas.filter((n) => n.categoriaId === id);
+        let movidas = 0;
+        try {
+            for (const nota of notas) {
+                await this.eliminarNota(nota.id);
+                movidas++;
+            }
+        } catch (e) {
+            return { eliminada: false, movidas, pendientes: notas.length - movidas, ajenos: [], motivo: `${e}` };
+        }
+        this.categorias = this.categorias.filter((c) => c.id !== id);
+        return { eliminada: true, movidas, pendientes: 0, ajenos: [] };
     }
 
     async listarNotas(categoriaId: string): Promise<Note[]> {
@@ -97,7 +117,10 @@ export class MockNotesRepository implements NotesRepository {
     }
 
     async guardarNota(nota: Note): Promise<Note> {
-        const guardada = { ...nota, editadaEn: new Date() };
+        // Dos guardados seguidos pueden caer en el mismo milisegundo: el segundo tiene que
+        // quedar igualmente como el más reciente, o el orden por fecha de edición empata.
+        this.ultimoGuardado = Math.max(Date.now(), this.ultimoGuardado + 1);
+        const guardada = { ...nota, editadaEn: new Date(this.ultimoGuardado) };
         const i = this.notas.findIndex((n) => n.id === nota.id);
         if (i >= 0) this.notas[i] = guardada;
         else this.notas.push(guardada);
@@ -124,11 +147,13 @@ export class MockNotesRepository implements NotesRepository {
         const nota = this.papelera.find((n) => n.id === id);
         if (!nota) throw new Error('La nota ya no está en la papelera');
 
-        const existeOrigen = this.categorias.some((c) => c.id === nota.categoriaId);
-        const categoriaId = existeOrigen ? nota.categoriaId : SIN_CATEGORIA;
+        const { categoriaId } = nota;
+        const categoriaRecreada =
+            categoriaId !== SIN_CATEGORIA && !this.categorias.some((c) => c.id === categoriaId);
+        if (categoriaRecreada) await this.crearCategoria(categoriaId);
         this.papelera = this.papelera.filter((n) => n !== nota);
-        this.notas.push({ ...nota, categoriaId });
-        return { categoriaId, categoriaPerdida: !existeOrigen };
+        this.notas.push(nota);
+        return { categoriaId, categoriaRecreada };
     }
 
     async vaciarPapelera(): Promise<void> {

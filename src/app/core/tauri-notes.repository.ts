@@ -2,7 +2,7 @@ import { Injectable, inject } from '@angular/core';
 import { invoke } from '@tauri-apps/api/core';
 import { revealItemInDir } from '@tauri-apps/plugin-opener';
 import { exists, mkdir, readDir, readTextFile, remove, rename, stat, writeTextFile } from '@tauri-apps/plugin-fs';
-import { NotesRepository, Restauracion } from './notes.repository';
+import { ContenidoCategoria, EliminacionCategoria, NotesRepository, Restauracion } from './notes.repository';
 import { SettingsService } from './settings.service';
 import { parsearFrontmatter, sanearNombreArchivo, serializarFrontmatter } from './frontmatter';
 import { Note } from '../models/note.model';
@@ -74,6 +74,51 @@ export class TauriNotesRepository implements NotesRepository {
         if (await exists(ruta)) throw new Error(`Ya existe una carpeta llamada «${nombre}»`);
         await mkdir(ruta);
         return { id: nombre, nombre, icono: 'folder', carpeta: nombre, total: 0 };
+    }
+
+    async contenidoCategoria(id: string): Promise<ContenidoCategoria> {
+        const { notas, ajenos } = await this.leerContenido(this.carpetaDeCategoria(id));
+        return { notas: notas.length, ajenos };
+    }
+
+    async eliminarCategoria(id: string): Promise<EliminacionCategoria> {
+        const carpeta = this.carpetaDeCategoria(id);
+        const { notas, ajenos } = await this.leerContenido(carpeta);
+        if (ajenos.length) return { eliminada: false, movidas: 0, pendientes: notas.length, ajenos };
+
+        let movidas = 0;
+        try {
+            for (const nombre of notas) {
+                await this.eliminarNota(`${carpeta}\\${nombre}`);
+                movidas++;
+            }
+            // Sin `recursive`: si entre tanto apareció algo en la carpeta, el borrado falla en
+            // vez de llevárselo por delante.
+            await remove(carpeta);
+        } catch (e) {
+            return { eliminada: false, movidas, pendientes: notas.length - movidas, ajenos: [], motivo: `${e}` };
+        }
+        return { eliminada: true, movidas, pendientes: 0, ajenos: [] };
+    }
+
+    // Solo carpetas de categoría: ni la raíz («Sin categoría»), ni la papelera, ni rutas compuestas.
+    private carpetaDeCategoria(id: string): string {
+        const raiz = this.raiz;
+        if (!raiz) throw new Error('No hay una carpeta de notas configurada');
+        if (!id || id === SIN_CATEGORIA || id.startsWith('.') || /[\\/]/.test(id)) {
+            throw new Error(`«${id}» no es una categoría`);
+        }
+        return `${raiz}\\${id}`;
+    }
+
+    private async leerContenido(carpeta: string): Promise<{ notas: string[]; ajenos: string[] }> {
+        const notas: string[] = [];
+        const ajenos: string[] = [];
+        for (const entrada of await readDir(carpeta)) {
+            const esNota = entrada.isFile && EXTENSIONES.some((ext) => entrada.name.toLowerCase().endsWith(ext));
+            (esNota ? notas : ajenos).push(entrada.name);
+        }
+        return { notas, ajenos };
     }
 
     async listarNotas(categoriaId: string): Promise<Note[]> {
@@ -201,16 +246,18 @@ export class TauriNotesRepository implements NotesRepository {
         const raiz = this.raiz;
         if (!raiz) throw new Error('No hay una carpeta de notas configurada');
 
-        const origen = this.categoriaDe(id, `${raiz}\\${PAPELERA}`);
-        const existeOrigen = origen === SIN_CATEGORIA || (await exists(`${raiz}\\${origen}`));
-        const categoriaId = existeOrigen ? origen : SIN_CATEGORIA;
+        // La subcarpeta de la papelera dice de qué categoría venía la nota; las del nivel superior
+        // eran notas sueltas y vuelven a la raíz.
+        const categoriaId = this.categoriaDe(id, `${raiz}\\${PAPELERA}`);
         const destino = categoriaId === SIN_CATEGORIA ? raiz : `${raiz}\\${categoriaId}`;
+        const categoriaRecreada = !(await exists(destino));
+        if (categoriaRecreada) await mkdir(destino);
 
         const { carpeta, base, extension } = this.partes(id);
         await rename(id, await this.rutaLibre(destino, base, extension));
         this.cache.delete(id);
         await this.quitarCarpetaDePapeleraVacia(carpeta);
-        return { categoriaId, categoriaPerdida: !existeOrigen };
+        return { categoriaId, categoriaRecreada };
     }
 
     async vaciarPapelera(): Promise<void> {

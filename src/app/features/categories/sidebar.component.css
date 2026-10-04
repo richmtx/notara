@@ -125,6 +125,118 @@ button:focus-visible {
     color: var(--text-muted);
 }
 
+/* Fila de una categoría: el ítem y, superpuesto en su extremo derecho, el botón de eliminar.
+   El botón no ocupa sitio en el flujo, así que nada se mueve al aparecer. */
+.fila {
+    position: relative;
+    flex-shrink: 0;
+}
+
+.quitar {
+    position: absolute;
+    top: 50%;
+    right: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    border: none;
+    border-radius: 4px;
+    background: none;
+    color: var(--text-muted);
+    opacity: 0;
+    transform: translateY(-50%);
+    transition: opacity 150ms ease-out;
+}
+
+.quitar i {
+    font-size: 15px;
+}
+
+.quitar:hover {
+    color: var(--accent);
+}
+
+.fila .conteo {
+    transition: transform 150ms ease-out;
+}
+
+/* Con el cursor encima (o al llegar con el teclado) aparece el botón y el contador se aparta
+   a su izquierda en lugar de quedar debajo. */
+.fila.eliminable:hover .quitar,
+.fila.eliminable:has(:focus-visible) .quitar {
+    opacity: 1;
+}
+
+.fila.eliminable:hover .conteo,
+.fila.eliminable:has(:focus-visible) .conteo {
+    transform: translateX(-24px);
+}
+
+/* El nombre cede ese hueco al contador desplazado: un nombre largo se corta antes. */
+.fila.eliminable:hover .etiqueta,
+.fila.eliminable:has(:focus-visible) .etiqueta {
+    padding-right: 24px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+
+    .quitar,
+    .fila .conteo {
+        transition: none;
+    }
+}
+
+/* Confirmación en línea bajo la categoría, como la de eliminar una nota en el visor. */
+.confirmar {
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+    gap: 6px;
+    margin: 2px 0 6px;
+    padding: 10px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    font-size: 12.5px;
+    line-height: 1.4;
+    color: var(--text);
+}
+
+.confirmar span {
+    overflow-wrap: anywhere;
+}
+
+.confirmar button {
+    padding: 6px 12px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: none;
+    font-size: 12.5px;
+    font-weight: 600;
+    line-height: 1.2;
+    color: var(--text);
+}
+
+.confirmar .secundario:hover:not(:disabled) {
+    background: var(--hover);
+}
+
+.confirmar .peligro {
+    border-color: var(--accent);
+    color: var(--accent);
+}
+
+.confirmar .peligro:hover:not(:disabled) {
+    background: var(--accent-soft);
+}
+
+.confirmar button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
 .vacio {
     font-size: 13px;
     color: var(--text-muted);

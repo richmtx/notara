@@ -13,12 +13,31 @@
         <hr class="separador" />
 
         @for (cat of notes.categorias(); track cat.id) {
-        <button class="item" [class.activo]="cat.id === notes.categoriaActivaId()"
-            (click)="notes.seleccionarCategoria(cat.id)">
-            <i class="ti" [class]="icono(cat.icono)"></i>
-            <span class="etiqueta">{{ cat.nombre }}</span>
-            <span class="conteo">{{ cat.total }}</span>
-        </button>
+        <div class="fila" [class.eliminable]="cat.id !== sinCategoria">
+            <button class="item" [class.activo]="cat.id === notes.categoriaActivaId()"
+                (click)="notes.seleccionarCategoria(cat.id)">
+                <i class="ti" [class]="icono(cat.icono)"></i>
+                <span class="etiqueta">{{ cat.nombre }}</span>
+                <span class="conteo">{{ cat.total }}</span>
+            </button>
+            @if (cat.id !== sinCategoria) {
+            <button class="quitar" title="Eliminar categoría" [attr.aria-label]="'Eliminar la categoría ' + cat.nombre"
+                (click)="pedirEliminar(cat.id)">
+                <i class="ti ti-trash" aria-hidden="true"></i>
+            </button>
+            }
+        </div>
+        @if (confirmacion()?.id === cat.id) {
+        <div class="confirmar" role="group" aria-label="Confirmar eliminación de la categoría"
+            (keydown.escape)="cancelarEliminar()">
+            <span>{{ pregunta(cat.nombre) }}</span>
+            <button #botonCancelar class="secundario" [disabled]="eliminando()"
+                (click)="cancelarEliminar()">Cancelar</button>
+            <button class="peligro" [disabled]="eliminando()" (click)="eliminar()">
+                {{ confirmacion()?.notas ? 'Mover las notas a la papelera y eliminar' : 'Eliminar' }}
+            </button>
+        </div>
+        }
         } @empty {
         @if (!creandoCategoria()) {
         <p class="vacio">No hay categorías en esta carpeta.</p>

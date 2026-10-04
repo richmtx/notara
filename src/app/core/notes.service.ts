@@ -1,7 +1,7 @@
 import { Injectable, inject, signal, computed } from '@angular/core';
 import { open } from '@tauri-apps/plugin-dialog';
 import { marked } from 'marked';
-import { NOTES_REPOSITORY } from './notes.repository';
+import { EliminacionCategoria, NOTES_REPOSITORY } from './notes.repository';
 import { SettingsService } from './settings.service';
 import { idaYVueltaSegura } from './markdown-editor';
 import { sanearNombreCarpeta } from './frontmatter';
@@ -23,6 +23,8 @@ const COMPARADORES: Record<OrdenNotas, (a: Note, b: Note) => number> = {
     titulo: (a, b) => a.titulo.localeCompare(b.titulo, 'es', { sensitivity: 'base', numeric: true }),
     creada: (a, b) => b.creadaEn.getTime() - a.creadaEn.getTime(),
 };
+
+const cuantasNotas = (total: number) => (total === 1 ? '1 nota' : `${total} notas`);
 
 @Injectable({ providedIn: 'root' })
 export class NotesService {
@@ -188,6 +190,95 @@ export class NotesService {
             this.error.set(`No se pudo crear la categoría: ${e}`);
             return false;
         }
+    }
+
+    // Paso previo a la confirmación: cuántas notas irían a la papelera. Devuelve null, con el
+    // motivo en `error`, si la categoría no se puede eliminar.
+    async consultarEliminacionCategoria(id: string): Promise<number | null> {
+        const categoria = this.categoriaEliminable(id);
+        if (!categoria) return null;
+        this.error.set(null);
+        try {
+            const { notas, ajenos } = await this.repo.contenidoCategoria(id);
+            if (!ajenos.length) return notas;
+            this.error.set(this.avisoContenidoAjeno(categoria.nombre, ajenos));
+        } catch (e) {
+            this.error.set(`No se pudo revisar la categoría: ${e}`);
+        }
+        return null;
+    }
+
+    // Las notas de la categoría pasan a la papelera y la carpeta se borra. Devuelve false si la
+    // categoría sigue existiendo; el motivo queda en `error`.
+    async eliminarCategoria(id: string): Promise<boolean> {
+        const categoria = this.categoriaEliminable(id);
+        if (!categoria) return false;
+        // Lo que se esté escribiendo en una nota de la categoría tiene que quedar guardado antes
+        // de moverla: si el guardado falla, no se elimina nada.
+        if (this.notaActiva()?.categoriaId === id && !(await this.salirDeEdicion())) return false;
+
+        return this.encolar(async () => {
+            this.error.set(null);
+            // Mientras esperaba su turno en la cola se volvió a abrir una nota de la categoría.
+            if (this.borrador() && this.notaActiva()?.categoriaId === id) {
+                this.error.set(`Hay una nota de «${categoria.nombre}» en edición: sal de la edición antes de eliminar la categoría.`);
+                return false;
+            }
+
+            let resultado: EliminacionCategoria;
+            try {
+                resultado = await this.repo.eliminarCategoria(id);
+            } catch (e) {
+                this.error.set(`No se pudo eliminar la categoría: ${e}`);
+                return false;
+            }
+            if (resultado.ajenos.length) {
+                this.error.set(this.avisoContenidoAjeno(categoria.nombre, resultado.ajenos));
+                return false;
+            }
+
+            if (resultado.eliminada && this.categoriaActivaId() === id) {
+                this.categoriaActivaId.set(null);
+                this.filtroBusqueda.set('');
+            }
+            // Se relee también si quedó a medias: parte de las notas ya está en la papelera.
+            await this.refrescar();
+            // Entre las notas movidas puede haber favoritas, y aquí no se sabe cuáles eran.
+            if (resultado.movidas && !this.enFavoritos()) await this.contarFavoritos();
+
+            if (resultado.eliminada) {
+                this.avisar(
+                    resultado.movidas
+                        ? `Se eliminó «${categoria.nombre}» y ${cuantasNotas(resultado.movidas)} se ${resultado.movidas === 1 ? 'movió' : 'movieron'} a la papelera.`
+                        : `Se eliminó la categoría «${categoria.nombre}».`
+                );
+            } else {
+                this.error.set(this.avisoEliminacionIncompleta(categoria.nombre, resultado));
+            }
+            return resultado.eliminada;
+        });
+    }
+
+    // «Sin categoría» son los archivos sueltos de la raíz, no una carpeta que se pueda borrar.
+    private categoriaEliminable(id: string): Category | null {
+        if (id === SIN_CATEGORIA) return null;
+        return this.categorias().find((c) => c.id === id) ?? null;
+    }
+
+    private avisoContenidoAjeno(nombre: string, ajenos: string[]): string {
+        const muestra = ajenos.slice(0, 3).join(', ');
+        const resto = ajenos.length > 3 ? ` y ${ajenos.length - 3} más` : '';
+        return `«${nombre}» no se eliminó: la carpeta tiene contenido que Notara no gestiona (${muestra}${resto}). Revísala manualmente.`;
+    }
+
+    private avisoEliminacionIncompleta(nombre: string, { movidas, pendientes, motivo }: EliminacionCategoria): string {
+        const enPapelera = movidas
+            ? `${cuantasNotas(movidas)} ya ${movidas === 1 ? 'está' : 'están'} en la papelera`
+            : 'ninguna nota se movió';
+        const queda = pendientes
+            ? `${cuantasNotas(pendientes)} ${pendientes === 1 ? 'sigue' : 'siguen'} en la carpeta`
+            : 'la carpeta no se pudo borrar';
+        return `«${nombre}» no se eliminó del todo: ${enPapelera} y ${queda} (${motivo}).`;
     }
 
     async seleccionarNota(id: string): Promise<void> {
@@ -364,10 +455,10 @@ export class NotesService {
             if (!nota || !this.enPapelera()) return;
             this.error.set(null);
             try {
-                const { categoriaId, categoriaPerdida } = await this.repo.restaurarNota(nota.id);
+                const { categoriaId, categoriaRecreada } = await this.repo.restaurarNota(nota.id);
                 this.avisar(
-                    categoriaPerdida
-                        ? `La categoría «${nota.categoriaId}» ya no existe: «${nota.titulo}» se restauró en la carpeta raíz.`
+                    categoriaRecreada
+                        ? `La categoría «${categoriaId}» ya no existía: se volvió a crear y «${nota.titulo}» se restauró en ella.`
                         : `«${nota.titulo}» se restauró en ${this.nombreCategoria(categoriaId)}.`
                 );
             } catch (e) {
@@ -505,7 +596,8 @@ export class NotesService {
             this.categorias.set(cats);
 
             let vistaId = this.categoriaActivaId();
-            if (!this.esVista(vistaId) && !cats.some((c) => c.id === vistaId)) {
+            // Sin selección (se eliminó la categoría activa) no se elige otra por el usuario.
+            if (vistaId && !this.esVista(vistaId) && !cats.some((c) => c.id === vistaId)) {
                 vistaId = cats[0]?.id ?? null;
                 this.categoriaActivaId.set(vistaId);
             }

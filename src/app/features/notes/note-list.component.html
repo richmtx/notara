@@ -77,6 +77,8 @@
             Aún no hay notas favoritas. Márcalas con la estrella del visor.
             } @else if (notes.enPapelera()) {
             Las notas que elimines aparecerán aquí hasta que las restaures o las borres.
+            } @else if (!notes.categoriaActivaId()) {
+            Elige una categoría para ver sus notas.
             } @else {
             No hay notas en esta categoría.
             }
