@@ -66,15 +66,25 @@ export function serializarFrontmatter(meta: Frontmatter, contenido: string, otro
 
 const RESERVADOS = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i;
 
-export function sanearNombreArchivo(titulo: string): string {
-    const nombre = titulo
+function quitarNoPermitidos(texto: string): string {
+    return texto
         .replace(/[\\/:*?"<>|\x00-\x1f]/g, '')
         .replace(/\s+/g, ' ')
         .slice(0, 120)
         // Windows tampoco admite nombres que terminen en punto o espacio.
         .replace(/[. ]+$/, '')
         .trim();
+}
 
+export function sanearNombreArchivo(titulo: string): string {
+    const nombre = quitarNoPermitidos(titulo);
     if (!nombre) return 'nota-sin-titulo';
     return RESERVADOS.test(nombre) ? `${nombre}-nota` : nombre;
+}
+
+// Mismas reglas que los archivos, pero sin nombre de reserva: '' significa que no hay nada que crear.
+// Tampoco puede empezar por punto, porque esas carpetas no se listan como categoría.
+export function sanearNombreCarpeta(nombre: string): string {
+    const limpio = quitarNoPermitidos(nombre.replace(/^[.\s]+/, ''));
+    return RESERVADOS.test(limpio) ? `${limpio}-notas` : limpio;
 }

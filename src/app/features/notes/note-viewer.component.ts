@@ -2,11 +2,12 @@ import { Component, ElementRef, effect, inject, signal, untracked, viewChild } f
 import { DatePipe } from '@angular/common';
 import { NotesService } from '../../core/notes.service';
 import { MarkdownEditorComponent } from './markdown-editor.component';
+import { CerrarAlSalirDirective } from '../../shared/cerrar-al-salir.directive';
 
 @Component({
   selector: 'app-note-viewer',
   standalone: true,
-  imports: [DatePipe, MarkdownEditorComponent],
+  imports: [DatePipe, MarkdownEditorComponent, CerrarAlSalirDirective],
   templateUrl: './note-viewer.component.html',
   styleUrl: './note-viewer.component.css',
 })
@@ -16,6 +17,8 @@ export class NoteViewerComponent {
   confirmandoEliminar = signal(false);
   agregandoEtiqueta = signal(false);
   confirmandoDescartar = signal(false);
+  menuAbierto = signal(false);
+  submenuMover = signal(false);
 
   private campoTitulo = viewChild<ElementRef<HTMLInputElement>>('campoTitulo');
   private campoContenido = viewChild<ElementRef<HTMLTextAreaElement>>('campoContenido');
@@ -27,6 +30,7 @@ export class NoteViewerComponent {
       this.notes.notaActivaId();
       this.confirmandoEliminar.set(false);
       this.agregandoEtiqueta.set(false);
+      this.cerrarMenu();
     });
 
     effect(() => {
@@ -57,6 +61,40 @@ export class NoteViewerComponent {
   async eliminar(): Promise<void> {
     this.confirmandoEliminar.set(false);
     await this.notes.eliminarNotaActiva();
+  }
+
+  alternarMenu(): void {
+    if (this.menuAbierto()) this.cerrarMenu();
+    else this.menuAbierto.set(true);
+  }
+
+  cerrarMenu(): void {
+    this.menuAbierto.set(false);
+    this.submenuMover.set(false);
+  }
+
+  mover(categoriaId: string): void {
+    this.cerrarMenu();
+    void this.notes.moverNotaActiva(categoriaId);
+  }
+
+  abrirEnExplorador(): void {
+    this.cerrarMenu();
+    void this.notes.mostrarEnExplorador();
+  }
+
+  async eliminarDefinitivamente(): Promise<void> {
+    this.confirmandoEliminar.set(false);
+    await this.notes.eliminarDefinitivamente();
+  }
+
+  // Por qué «Nueva nota» está deshabilitado, cuando lo está.
+  pistaCrear(): string {
+    if (this.notes.enFavoritos()) {
+      return 'Favoritos reúne notas de varias categorías: elige una categoría para crear una nota';
+    }
+    if (this.notes.enPapelera()) return 'La papelera es de solo lectura: elige una categoría para crear una nota';
+    return '';
   }
 
   // Cancelar una nota recién creada: solo se confirma si ya hay algo escrito que perder.

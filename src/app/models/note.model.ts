@@ -6,8 +6,13 @@ export interface Note {
     tags: string[];
     favorito: boolean;
     editadaEn: Date;
+    creadaEn: Date;
     rutaArchivo: string;
 }
+
+export type OrdenNotas = 'editada' | 'titulo' | 'creada';
+
+export const ORDEN_POR_DEFECTO: OrdenNotas = 'editada';
 
 export const TITULO_POR_DEFECTO = 'Nota sin título';
 
@@ -25,6 +30,7 @@ export function crearNotaVacia(categoriaId: string): Note {
         tags: [],
         favorito: false,
         editadaEn: new Date(),
+        creadaEn: new Date(),
         rutaArchivo: '',
     };
 }

@@ -2,27 +2,81 @@
     <div class="buscador">
         <div class="campo">
             <i class="ti ti-search"></i>
-            <input type="text" [placeholder]="'Buscar notas en ' + (notes.categoriaActiva()?.nombre ?? 'todo') + '...'"
+            <input type="text" [placeholder]="'Buscar notas en ' + (notes.nombreVista() ?? 'todo') + '...'"
                 [ngModel]="notes.filtroBusqueda()" (ngModelChange)="notes.filtroBusqueda.set($event)" />
         </div>
-        <button class="filtro" disabled title="Ordenar">
-            <i class="ti ti-arrows-sort"></i>
-        </button>
+        <div class="ancla" (appCerrarAlSalir)="menuOrden.set(false)">
+            <button class="filtro" [class.abierto]="menuOrden()" title="Ordenar" aria-label="Ordenar notas"
+                aria-haspopup="menu" [attr.aria-expanded]="menuOrden()" (click)="menuOrden.set(!menuOrden())">
+                <i class="ti ti-arrows-sort" aria-hidden="true"></i>
+            </button>
+            @if (menuOrden()) {
+            <div class="menu" role="menu" aria-label="Ordenar notas por">
+                @for (opcion of ordenes; track opcion.valor) {
+                <button class="opcion" role="menuitemradio" [class.elegida]="opcion.valor === notes.orden()"
+                    [attr.aria-checked]="opcion.valor === notes.orden()" (click)="ordenar(opcion.valor)">
+                    <span class="textos">
+                        {{ opcion.etiqueta }}
+                        <small>{{ opcion.detalle }}</small>
+                    </span>
+                    @if (opcion.valor === notes.orden()) {
+                    <i class="ti ti-check" aria-hidden="true"></i>
+                    }
+                </button>
+                }
+            </div>
+            }
+        </div>
     </div>
+
+    @if (notes.enPapelera()) {
+    <div class="papelera">
+        @if (confirmandoVaciar()) {
+        <span class="pregunta">¿Borrar para siempre {{ textoTotal() }}? No se puede deshacer.</span>
+        <div class="botones">
+            <button class="boton" (click)="confirmandoVaciar.set(false)">Cancelar</button>
+            <button class="boton peligro" (click)="vaciar()">Vaciar</button>
+        </div>
+        } @else {
+        <span class="resumen">{{ notes.notas().length ? textoTotal() : 'Papelera vacía' }}</span>
+        <button class="boton" [disabled]="!notes.notas().length" (click)="confirmandoVaciar.set(true)">
+            <i class="ti ti-trash-x" aria-hidden="true"></i>
+            <span>Vaciar papelera</span>
+        </button>
+        }
+    </div>
+    }
 
     <div class="items">
         @for (nota of notes.notasFiltradas(); track nota.id) {
         <button class="item" [class.activo]="nota.id === notes.notaActivaId()" (click)="notes.seleccionarNota(nota.id)">
             <div class="fila">
-                <span class="titulo">{{ nota.titulo }}</span>
-                <span class="fecha">{{ nota.editadaEn | date: 'd MMM y' }}</span>
+                <span class="titulo">
+                    <span class="titulo-texto">{{ nota.titulo }}</span>
+                    @if (nota.favorito) {
+                    <i class="ti ti-star-filled favorita" role="img" aria-label="Favorita"></i>
+                    }
+                </span>
+                <span class="fecha" [title]="notes.orden() === 'creada' ? 'Fecha de creación' : 'Fecha de edición'">
+                    {{ (notes.orden() === 'creada' ? nota.creadaEn : nota.editadaEn) | date: 'd MMM y' }}
+                </span>
             </div>
             <p class="preview">{{ preview(nota.contenido) }}</p>
+            @if (notes.enFavoritos() || notes.enPapelera()) {
+            <p class="origen">
+                <i class="ti ti-folder" aria-hidden="true"></i>
+                {{ notes.nombreCategoria(nota.categoriaId) }}
+            </p>
+            }
         </button>
         } @empty {
         <p class="vacio">
             @if (notes.filtroBusqueda()) {
             Sin resultados para esa búsqueda.
+            } @else if (notes.enFavoritos()) {
+            Aún no hay notas favoritas. Márcalas con la estrella del visor.
+            } @else if (notes.enPapelera()) {
+            Las notas que elimines aparecerán aquí hasta que las restaures o las borres.
             } @else {
             No hay notas en esta categoría.
             }

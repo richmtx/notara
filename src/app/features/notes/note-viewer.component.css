@@ -10,7 +10,8 @@
     display: flex;
     align-items: center;
     justify-content: flex-end;
-    gap: 14px;
+    flex-wrap: wrap;
+    gap: 10px 14px;
     padding: 16px 28px;
 }
 
@@ -32,8 +33,13 @@
     font-size: 15px;
 }
 
-.primario:hover {
+.primario:hover:not(:disabled) {
     filter: brightness(0.94);
+}
+
+.primario:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
 }
 
 .estado {
@@ -65,7 +71,7 @@ button:focus-visible {
     gap: 4px;
 }
 
-.acciones button {
+:is(.acciones, .ancla) > button {
     display: flex;
     align-items: center;
     justify-content: center;
@@ -77,22 +83,44 @@ button:focus-visible {
     color: var(--text-muted);
 }
 
-.acciones i {
+:is(.acciones, .ancla) > button i {
     font-size: 17px;
 }
 
-.acciones button:hover:not(:disabled) {
+:is(.acciones, .ancla) > button:hover:not(:disabled),
+.ancla > button.abierto {
     background: var(--hover);
     color: var(--text);
 }
 
-.acciones button.activo {
+.acciones > button.activo {
     color: var(--accent);
 }
 
-.acciones button:disabled {
+.acciones > button:disabled {
     opacity: 0.6;
     cursor: not-allowed;
+}
+
+.ancla {
+    position: relative;
+}
+
+/* El submenú se despliega dentro del propio menú: la barra está pegada al borde de la ventana
+   y no hay sitio a los lados para abrirlo aparte. */
+.submenu {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    max-height: 200px;
+    margin: 2px 0 2px 17px;
+    padding-left: 5px;
+    border-left: 1px solid var(--border);
+    overflow-y: auto;
+}
+
+.opcion .flecha {
+    font-size: 14px;
 }
 
 .confirmar {
@@ -104,7 +132,23 @@ button:focus-visible {
     color: var(--text);
 }
 
+.grupo {
+    display: flex;
+    gap: 8px;
+}
+
+.boton {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.boton i {
+    font-size: 15px;
+}
+
 .cancelar,
+.boton,
 .confirmar button {
     padding: 6px 12px;
     border: 1px solid var(--border);
@@ -117,15 +161,18 @@ button:focus-visible {
 }
 
 .cancelar:hover,
+.boton:hover,
 .confirmar .secundario:hover {
     background: var(--hover);
 }
 
+.boton.peligro,
 .confirmar .peligro {
     border-color: var(--accent);
     color: var(--accent);
 }
 
+.boton.peligro:hover,
 .confirmar .peligro:hover {
     background: var(--accent-soft);
 }
@@ -229,6 +276,14 @@ h1 {
     border-radius: 999px;
     background: var(--accent-soft);
     color: var(--accent);
+}
+
+.tag.solo-lectura {
+    padding: 6px 13px;
+}
+
+.aviso-papelera {
+    margin-top: 24px;
 }
 
 .quitar {

@@ -9,5 +9,7 @@
 
   @if (notes.error(); as err) {
     <p class="error-global" role="alert">{{ err }}</p>
+  } @else if (notes.aviso()) {
+    <p class="error-global" role="status">{{ notes.aviso() }}</p>
   }
 }

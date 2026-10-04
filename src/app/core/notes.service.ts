@@ -4,8 +4,9 @@ import { marked } from 'marked';
 import { NOTES_REPOSITORY } from './notes.repository';
 import { SettingsService } from './settings.service';
 import { idaYVueltaSegura } from './markdown-editor';
-import { Note, TITULO_POR_DEFECTO, crearNotaVacia, esTextoPlano } from '../models/note.model';
-import { Category, SIN_CATEGORIA } from '../models/category.model';
+import { sanearNombreCarpeta } from './frontmatter';
+import { Note, OrdenNotas, TITULO_POR_DEFECTO, crearNotaVacia, esTextoPlano } from '../models/note.model';
+import { Category, FAVORITOS, PAPELERA, SIN_CATEGORIA } from '../models/category.model';
 
 export interface Borrador {
     titulo: string;
@@ -15,6 +16,13 @@ export interface Borrador {
 export type EstadoGuardado = 'inactivo' | 'pendiente' | 'guardando' | 'guardado' | 'error';
 
 const ESPERA_AUTOGUARDADO = 800;
+const DURACION_AVISO = 6000;
+
+const COMPARADORES: Record<OrdenNotas, (a: Note, b: Note) => number> = {
+    editada: (a, b) => b.editadaEn.getTime() - a.editadaEn.getTime(),
+    titulo: (a, b) => a.titulo.localeCompare(b.titulo, 'es', { sensitivity: 'base', numeric: true }),
+    creada: (a, b) => b.creadaEn.getTime() - a.creadaEn.getTime(),
+};
 
 @Injectable({ providedIn: 'root' })
 export class NotesService {
@@ -28,6 +36,9 @@ export class NotesService {
     readonly filtroBusqueda = signal('');
     readonly cargando = signal(false);
     readonly error = signal<string | null>(null);
+    // Mensaje informativo (no es un fallo) que se retira solo al cabo de unos segundos.
+    readonly aviso = signal<string | null>(null);
+    readonly totalFavoritos = signal(0);
 
     // Lo que el usuario está escribiendo. Vive aparte de `notas` para que refrescar
     // la lista desde disco nunca pise el texto en curso. null = modo lectura.
@@ -40,28 +51,50 @@ export class NotesService {
     readonly edicionEnriquecida = signal(false);
 
     private temporizador: ReturnType<typeof setTimeout> | null = null;
+    private temporizadorAviso: ReturnType<typeof setTimeout> | null = null;
     // Las escrituras van en serie: guardar puede renombrar el archivo y cambiar el id de la nota.
     private cola: Promise<unknown> = Promise.resolve();
 
     readonly carpetaRaiz = computed(() => this.settings.carpetaRaiz());
+    readonly orden = computed(() => this.settings.ordenNotas());
 
     readonly categoriaActiva = computed(
         () => this.categorias().find((c) => c.id === this.categoriaActivaId()) ?? null
     );
 
+    readonly enFavoritos = computed(() => this.categoriaActivaId() === FAVORITOS);
+    // La papelera es de solo lectura: sus notas solo se pueden restaurar o borrar.
+    readonly enPapelera = computed(() => this.categoriaActivaId() === PAPELERA);
+
+    // Nombre de lo que muestra la lista central: una categoría o una vista.
+    readonly nombreVista = computed(() => {
+        if (this.enFavoritos()) return 'Favoritos';
+        if (this.enPapelera()) return 'Papelera';
+        return this.categoriaActiva()?.nombre ?? null;
+    });
+
+    // Una nota nueva necesita una carpeta: Favoritos reúne varias y la papelera no admite cambios.
+    readonly puedeCrear = computed(() => !this.enFavoritos() && !this.enPapelera());
+
     readonly notaActiva = computed(
         () => this.notas().find((n) => n.id === this.notaActivaId()) ?? null
     );
+
+    // Categorías a las que puede moverse la nota activa: todas menos la suya.
+    readonly categoriasDestino = computed(() => {
+        const nota = this.notaActiva();
+        return nota ? this.categorias().filter((c) => c.id !== nota.categoriaId) : [];
+    });
 
     readonly notaActivaEsTextoPlano = computed(() => {
         const nota = this.notaActiva();
         return !!nota && esTextoPlano(nota);
     });
 
-    // Las notas llegan ordenadas por fecha de edición. La que se está creando va siempre
-    // primero, aunque algún archivo tenga una fecha posterior a la del reloj.
+    // La nota que se está creando va siempre primero, sea cual sea el orden elegido y aunque
+    // algún archivo tenga una fecha posterior a la del reloj.
     private readonly notasOrdenadas = computed(() => {
-        const notas = this.notas();
+        const notas = [...this.notas()].sort(COMPARADORES[this.orden()]);
         const nueva = this.creando() ? notas.find((n) => n.id === this.notaActivaId()) : undefined;
         return nueva ? [nueva, ...notas.filter((n) => n !== nueva)] : notas;
     });
@@ -108,6 +141,7 @@ export class NotesService {
                 this.categoriaActivaId.set(null);
                 this.notaActivaId.set(null);
             }
+            await this.contarFavoritos();
         } catch (e) {
             this.error.set(`No se pudo leer la carpeta: ${e}`);
         } finally {
@@ -121,7 +155,7 @@ export class NotesService {
         this.filtroBusqueda.set('');
         this.cargando.set(true);
         try {
-            const notas = await this.repo.listarNotas(id);
+            const notas = await this.listarVista(id);
             this.notas.set(notas);
             this.notaActivaId.set(null);
         } catch (e) {
@@ -132,13 +166,51 @@ export class NotesService {
         }
     }
 
+    // Devuelve false si hubo un error y conviene dejar el campo abierto para corregir el nombre.
+    async crearCategoria(nombre: string): Promise<boolean> {
+        const limpio = sanearNombreCarpeta(nombre);
+        if (!limpio) return true;
+
+        this.error.set(null);
+        // Windows no distingue mayúsculas en los nombres de carpeta.
+        if (this.categorias().some((c) => c.carpeta.toLowerCase() === limpio.toLowerCase())) {
+            this.error.set(`Ya existe una categoría llamada «${limpio}».`);
+            return false;
+        }
+        if (!(await this.salirDeEdicion())) return false;
+
+        try {
+            const creada = await this.repo.crearCategoria(limpio);
+            this.categorias.set(await this.repo.listarCategorias());
+            await this.seleccionarCategoria(creada.id);
+            return true;
+        } catch (e) {
+            this.error.set(`No se pudo crear la categoría: ${e}`);
+            return false;
+        }
+    }
+
     async seleccionarNota(id: string): Promise<void> {
         if (id === this.notaActivaId()) return;
         if (!(await this.salirDeEdicion())) return;
         this.notaActivaId.set(id);
     }
 
+    async cambiarOrden(orden: OrdenNotas): Promise<void> {
+        try {
+            await this.settings.guardarOrdenNotas(orden);
+        } catch (e) {
+            this.error.set(`No se pudo guardar el orden elegido: ${e}`);
+        }
+    }
+
+    nombreCategoria(id: string): string {
+        if (id === SIN_CATEGORIA) return 'Sin categoría';
+        return this.categorias().find((c) => c.id === id)?.nombre ?? id;
+    }
+
     async crearNota(): Promise<void> {
+        if (!this.puedeCrear()) return;
         if (!(await this.salirDeEdicion())) return;
         await this.encolar(async () => {
             const categoriaId = this.categoriaActivaId() ?? SIN_CATEGORIA;
@@ -174,7 +246,7 @@ export class NotesService {
 
     editar(): void {
         const nota = this.notaActiva();
-        if (!nota || this.borrador()) return;
+        if (!nota || this.borrador() || this.enPapelera()) return;
         this.estadoGuardado.set('inactivo');
         this.edicionEnriquecida.set(!esTextoPlano(nota) && idaYVueltaSegura(nota.contenido));
         this.borrador.set({ titulo: nota.titulo, contenido: nota.contenido });
@@ -213,8 +285,10 @@ export class NotesService {
         this.estadoGuardado.set('inactivo');
     }
 
-    alternarFavorito(): Promise<boolean> {
-        return this.guardarMeta((nota) => ({ favorito: !nota.favorito }));
+    async alternarFavorito(): Promise<boolean> {
+        const cambiado = await this.guardarMeta((nota) => ({ favorito: !nota.favorito }));
+        if (cambiado) await this.contarFavoritos();
+        return cambiado;
     }
 
     agregarEtiqueta(etiqueta: string): Promise<boolean> {
@@ -246,7 +320,97 @@ export class NotesService {
             this.cerrarBorrador();
             this.notaActivaId.set(null);
             await this.refrescar();
+            if (nota.favorito) await this.contarFavoritos();
         });
+    }
+
+    async moverNotaActiva(categoriaId: string): Promise<void> {
+        if (this.enPapelera()) return;
+        if (!(await this.salirDeEdicion())) return;
+        await this.encolar(async () => {
+            const nota = this.notaActiva();
+            if (!nota || nota.categoriaId === categoriaId) return;
+            this.error.set(null);
+            let movida: Note;
+            try {
+                movida = await this.repo.moverNota(nota.id, categoriaId);
+            } catch (e) {
+                this.error.set(`No se pudo mover la nota: ${e}`);
+                return;
+            }
+            // En Favoritos la nota sigue en la lista, con otro id; en su categoría deja de estar.
+            this.notaActivaId.set(this.enFavoritos() ? movida.id : null);
+            await this.refrescar();
+            this.avisar(`«${movida.titulo}» se movió a ${this.nombreCategoria(categoriaId)}.`);
+        });
+    }
+
+    async mostrarEnExplorador(): Promise<void> {
+        const nota = this.notaActiva();
+        if (!nota) return;
+        this.error.set(null);
+        try {
+            await this.repo.mostrarEnExplorador(nota.id);
+        } catch (e) {
+            this.error.set(`No se pudo abrir el explorador: ${e}`);
+        }
+    }
+
+    async restaurarNotaActiva(): Promise<void> {
+        await this.encolar(async () => {
+            const nota = this.notaActiva();
+            if (!nota || !this.enPapelera()) return;
+            this.error.set(null);
+            try {
+                const { categoriaId, categoriaPerdida } = await this.repo.restaurarNota(nota.id);
+                this.avisar(
+                    categoriaPerdida
+                        ? `La categoría «${nota.categoriaId}» ya no existe: «${nota.titulo}» se restauró en la carpeta raíz.`
+                        : `«${nota.titulo}» se restauró en ${this.nombreCategoria(categoriaId)}.`
+                );
+            } catch (e) {
+                this.error.set(`No se pudo restaurar la nota: ${e}`);
+                return;
+            }
+            this.notaActivaId.set(null);
+            await this.refrescar();
+            await this.contarFavoritos();
+        });
+    }
+
+    async eliminarDefinitivamente(): Promise<void> {
+        await this.encolar(async () => {
+            const nota = this.notaActiva();
+            if (!nota || !this.enPapelera()) return;
+            this.error.set(null);
+            try {
+                await this.repo.descartarNota(nota.id);
+            } catch (e) {
+                this.error.set(`No se pudo eliminar la nota: ${e}`);
+                return;
+            }
+            this.notaActivaId.set(null);
+            await this.refrescar();
+        });
+    }
+
+    async vaciarPapelera(): Promise<void> {
+        await this.encolar(async () => {
+            this.error.set(null);
+            try {
+                await this.repo.vaciarPapelera();
+            } catch (e) {
+                this.error.set(`No se pudo vaciar la papelera: ${e}`);
+            }
+            // Se relee también si falló: parte del contenido puede haberse borrado.
+            await this.refrescar();
+        });
+    }
+
+    private avisar(mensaje: string): void {
+        if (this.temporizadorAviso) clearTimeout(this.temporizadorAviso);
+        this.aviso.set(mensaje);
+        this.temporizadorAviso = setTimeout(() => this.aviso.set(null), DURACION_AVISO);
     }
 
     private guardarBorrador(): Promise<boolean> {
@@ -267,7 +431,7 @@ export class NotesService {
         this.cancelarTemporizador();
         return this.encolar(async () => {
             const nota = this.notaActiva();
-            if (!nota || esTextoPlano(nota)) return false;
+            if (!nota || esTextoPlano(nota) || this.enPapelera()) return false;
             const cambio = cambios(nota);
             if (!cambio) return false;
             return (await this.persistir({ ...this.conBorrador(nota), ...cambio })) !== null;
@@ -308,25 +472,52 @@ export class NotesService {
         return guardada;
     }
 
-    // Relee categorías (contadores) y notas de la categoría activa sin perder la selección.
+    // Relee categorías (contadores) y notas de la vista activa sin perder la selección.
     private async refrescar(): Promise<void> {
         try {
             const cats = await this.repo.listarCategorias();
             this.categorias.set(cats);
 
-            let categoriaId = this.categoriaActivaId();
-            if (!cats.some((c) => c.id === categoriaId)) {
-                categoriaId = cats[0]?.id ?? null;
-                this.categoriaActivaId.set(categoriaId);
+            let vistaId = this.categoriaActivaId();
+            if (!this.esVista(vistaId) && !cats.some((c) => c.id === vistaId)) {
+                vistaId = cats[0]?.id ?? null;
+                this.categoriaActivaId.set(vistaId);
             }
 
-            const notas = categoriaId ? await this.repo.listarNotas(categoriaId) : [];
+            const notas = vistaId ? await this.listarVista(vistaId) : [];
             this.notas.set(notas);
             if (!notas.some((n) => n.id === this.notaActivaId())) {
+                // La nota salió de la vista (p. ej. dejó de ser favorita); lo escrito ya está guardado.
+                this.cancelarTemporizador();
+                this.cerrarBorrador();
                 this.notaActivaId.set(null);
             }
         } catch (e) {
             this.error.set(`No se pudo actualizar la lista de notas: ${e}`);
+        }
+    }
+
+    private esVista(id: string | null): boolean {
+        return id === FAVORITOS || id === PAPELERA;
+    }
+
+    private async listarVista(id: string): Promise<Note[]> {
+        if (id === FAVORITOS) {
+            const favoritas = await this.repo.listarFavoritas();
+            this.totalFavoritos.set(favoritas.length);
+            return favoritas;
+        }
+        if (id === PAPELERA) return this.repo.listarPapelera();
+        return this.repo.listarNotas(id);
+    }
+
+    // En la vista de favoritos el contador sale de la propia lista; fuera de ella hay que recorrer las carpetas.
+    private async contarFavoritos(): Promise<void> {
+        if (this.enFavoritos()) return;
+        try {
+            this.totalFavoritos.set((await this.repo.listarFavoritas()).length);
+        } catch (e) {
+            this.error.set(`No se pudieron contar las notas favoritas: ${e}`);
         }
     }
 

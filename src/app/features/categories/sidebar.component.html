@@ -5,6 +5,13 @@
     </div>
 
     <nav>
+        <button class="item" [class.activo]="notes.enFavoritos()" (click)="notes.seleccionarCategoria(favoritos)">
+            <i class="ti ti-star" aria-hidden="true"></i>
+            <span class="etiqueta">Favoritos</span>
+            <span class="conteo">{{ notes.totalFavoritos() }}</span>
+        </button>
+        <hr class="separador" />
+
         @for (cat of notes.categorias(); track cat.id) {
         <button class="item" [class.activo]="cat.id === notes.categoriaActivaId()"
             (click)="notes.seleccionarCategoria(cat.id)">
@@ -13,12 +20,27 @@
             <span class="conteo">{{ cat.total }}</span>
         </button>
         } @empty {
+        @if (!creandoCategoria()) {
         <p class="vacio">No hay categorías en esta carpeta.</p>
+        }
+        }
+
+        @if (creandoCategoria()) {
+        <div class="item nueva">
+            <i class="ti ti-folder" aria-hidden="true"></i>
+            <input #campoCategoria type="text" aria-label="Nombre de la nueva categoría" placeholder="Nueva categoría"
+                maxlength="120" spellcheck="false" (keydown.enter)="confirmarCategoria(valor($event))"
+                (keydown.escape)="creandoCategoria.set(false)" (blur)="creandoCategoria.set(false)" />
+        </div>
         }
     </nav>
 
     <footer>
-        <button class="accion" disabled>
+        <button class="accion" [class.activo]="notes.enPapelera()" (click)="notes.seleccionarCategoria(papelera)">
+            <i class="ti ti-trash" aria-hidden="true"></i>
+            <span>Papelera</span>
+        </button>
+        <button class="accion" (click)="creandoCategoria.set(true)">
             <i class="ti ti-circle-plus"></i>
             <span>Nueva categoría</span>
         </button>

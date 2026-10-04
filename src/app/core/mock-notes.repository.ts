@@ -1,7 +1,7 @@
 import { Injectable } from '@angular/core';
-import { NotesRepository } from './notes.repository';
+import { NotesRepository, Restauracion } from './notes.repository';
 import { Note } from '../models/note.model';
-import { Category } from '../models/category.model';
+import { Category, SIN_CATEGORIA } from '../models/category.model';
 
 const CATEGORIAS: Category[] = [
     { id: 'trabajo', nombre: 'Trabajo', icono: 'briefcase', carpeta: 'Trabajo', total: 2 },
@@ -20,6 +20,7 @@ const NOTAS: Note[] = [
         tags: ['github', 'portafolio'],
         favorito: false,
         editadaEn: new Date('2026-09-25T14:30:00'),
+        creadaEn: new Date('2026-09-10T09:00:00'),
         rutaArchivo: '',
     },
     {
@@ -30,6 +31,7 @@ const NOTAS: Note[] = [
         tags: ['tvtecno'],
         favorito: false,
         editadaEn: new Date('2026-09-24T10:00:00'),
+        creadaEn: new Date('2026-09-18T16:20:00'),
         rutaArchivo: '',
     },
     {
@@ -40,6 +42,7 @@ const NOTAS: Note[] = [
         tags: ['aws', 'certificacion'],
         favorito: true,
         editadaEn: new Date('2026-09-22T09:15:00'),
+        creadaEn: new Date('2026-09-21T11:45:00'),
         rutaArchivo: '',
     },
     {
@@ -50,6 +53,7 @@ const NOTAS: Note[] = [
         tags: ['ui'],
         favorito: false,
         editadaEn: new Date('2026-09-20T18:40:00'),
+        creadaEn: new Date('2026-09-05T08:30:00'),
         rutaArchivo: '',
     },
 ];
@@ -57,14 +61,34 @@ const NOTAS: Note[] = [
 @Injectable()
 export class MockNotesRepository implements NotesRepository {
     private notas = [...NOTAS];
+    private categorias = [...CATEGORIAS];
+    private papelera: Note[] = [];
 
     async listarCategorias(): Promise<Category[]> {
-        return CATEGORIAS;
+        return this.categorias.map((c) => ({
+            ...c,
+            total: this.notas.filter((n) => n.categoriaId === c.id).length,
+        }));
+    }
+
+    async crearCategoria(nombre: string): Promise<Category> {
+        if (this.categorias.some((c) => c.carpeta.toLowerCase() === nombre.toLowerCase())) {
+            throw new Error(`Ya existe una carpeta llamada «${nombre}»`);
+        }
+        const creada: Category = { id: nombre, nombre, icono: 'folder', carpeta: nombre, total: 0 };
+        this.categorias.push(creada);
+        return creada;
     }
 
     async listarNotas(categoriaId: string): Promise<Note[]> {
         return this.notas
             .filter((n) => n.categoriaId === categoriaId)
+            .sort((a, b) => b.editadaEn.getTime() - a.editadaEn.getTime());
+    }
+
+    async listarFavoritas(): Promise<Note[]> {
+        return this.notas
+            .filter((n) => n.favorito)
             .sort((a, b) => b.editadaEn.getTime() - a.editadaEn.getTime());
     }
 
@@ -81,10 +105,44 @@ export class MockNotesRepository implements NotesRepository {
     }
 
     async eliminarNota(id: string): Promise<void> {
-        this.notas = this.notas.filter((n) => n.id !== id);
+        const nota = this.notas.find((n) => n.id === id);
+        if (!nota) return;
+        this.notas = this.notas.filter((n) => n !== nota);
+        this.papelera.push(nota);
     }
 
     async descartarNota(id: string): Promise<void> {
-        await this.eliminarNota(id);
+        this.notas = this.notas.filter((n) => n.id !== id);
+        this.papelera = this.papelera.filter((n) => n.id !== id);
+    }
+
+    async listarPapelera(): Promise<Note[]> {
+        return [...this.papelera].sort((a, b) => b.editadaEn.getTime() - a.editadaEn.getTime());
+    }
+
+    async restaurarNota(id: string): Promise<Restauracion> {
+        const nota = this.papelera.find((n) => n.id === id);
+        if (!nota) throw new Error('La nota ya no está en la papelera');
+
+        const existeOrigen = this.categorias.some((c) => c.id === nota.categoriaId);
+        const categoriaId = existeOrigen ? nota.categoriaId : SIN_CATEGORIA;
+        this.papelera = this.papelera.filter((n) => n !== nota);
+        this.notas.push({ ...nota, categoriaId });
+        return { categoriaId, categoriaPerdida: !existeOrigen };
+    }
+
+    async vaciarPapelera(): Promise<void> {
+        this.papelera = [];
+    }
+
+    async moverNota(id: string, categoriaId: string): Promise<Note> {
+        const i = this.notas.findIndex((n) => n.id === id);
+        if (i < 0) throw new Error('La nota ya no existe');
+        this.notas[i] = { ...this.notas[i], categoriaId };
+        return this.notas[i];
+    }
+
+    async mostrarEnExplorador(): Promise<void> {
+        // Las notas de prueba no tienen archivo que mostrar.
     }
 }

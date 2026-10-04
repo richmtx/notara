@@ -66,9 +66,102 @@
     font-size: 17px;
 }
 
-.filtro:disabled {
+.filtro:hover,
+.filtro.abierto {
+    background: var(--hover);
+    color: var(--text);
+}
+
+.ancla {
+    position: relative;
+}
+
+.opcion .textos {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.opcion small {
+    font-size: 11.5px;
+    font-weight: 400;
+    color: var(--text-muted);
+}
+
+.opcion.elegida {
+    font-weight: 700;
+}
+
+.opcion.elegida i {
+    color: var(--accent);
+}
+
+button:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+}
+
+.item:focus-visible {
+    outline-offset: -2px;
+}
+
+.papelera {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: 0 14px 8px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--border);
+    font-size: 12.5px;
+    color: var(--text-muted);
+}
+
+.papelera .pregunta {
+    color: var(--text);
+}
+
+.botones {
+    display: flex;
+    gap: 8px;
+    margin-left: auto;
+}
+
+.boton {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: none;
+    font-size: 12.5px;
+    font-weight: 600;
+    line-height: 1;
+    color: var(--text);
+}
+
+.boton i {
+    font-size: 15px;
+}
+
+.boton:hover:not(:disabled) {
+    background: var(--hover);
+}
+
+.boton:disabled {
     opacity: 0.5;
     cursor: not-allowed;
+}
+
+.boton.peligro {
+    border-color: var(--accent);
+    color: var(--accent);
+}
+
+.boton.peligro:hover {
+    background: var(--accent-soft);
 }
 
 .items {
@@ -123,9 +216,40 @@
 }
 
 .titulo {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    min-width: 0;
     font-size: 14px;
     font-weight: 700;
     color: var(--text);
+}
+
+.titulo-texto {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.favorita {
+    flex-shrink: 0;
+    font-size: 11px;
+    color: var(--accent);
+    opacity: 0.75;
+}
+
+.origen {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    margin: 6px 0 0;
+    font-size: 11.5px;
+    font-weight: 500;
+    color: var(--text-muted);
+}
+
+.origen i {
+    font-size: 13px;
 }
 
 .fecha {
