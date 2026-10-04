@@ -241,6 +241,7 @@ export class NotesService {
             this.cerrarBorrador();
             this.notaActivaId.set(null);
             await this.refrescar();
+            if (nota.favorito) this.ajustarFavoritos(-1);
         });
     }
 
@@ -286,8 +287,9 @@ export class NotesService {
     }
 
     async alternarFavorito(): Promise<boolean> {
-        const cambiado = await this.guardarMeta((nota) => ({ favorito: !nota.favorito }));
-        if (cambiado) await this.contarFavoritos();
+        let favorito = false;
+        const cambiado = await this.guardarMeta((nota) => ({ favorito: (favorito = !nota.favorito) }));
+        if (cambiado) this.ajustarFavoritos(favorito ? 1 : -1);
         return cambiado;
     }
 
@@ -320,7 +322,7 @@ export class NotesService {
             this.cerrarBorrador();
             this.notaActivaId.set(null);
             await this.refrescar();
-            if (nota.favorito) await this.contarFavoritos();
+            if (nota.favorito) this.ajustarFavoritos(-1);
         });
     }
 
@@ -374,7 +376,8 @@ export class NotesService {
             }
             this.notaActivaId.set(null);
             await this.refrescar();
-            await this.contarFavoritos();
+            // La nota conserva su marca de favorita mientras está en la papelera.
+            if (nota.favorito) this.ajustarFavoritos(1);
         });
     }
 
@@ -458,18 +461,41 @@ export class NotesService {
             return null;
         }
 
+        // Guardar solo cambia esta nota: se actualiza en la lista en memoria, sin releer la vista
+        // del disco. Del orden se encarga `notasOrdenadas`.
+        const esNueva = !this.notas().some((n) => n.id === nota.id);
         this.notas.update((notas) =>
-            notas.some((n) => n.id === nota.id)
-                ? notas.map((n) => (n.id === nota.id ? guardada : n))
-                : [guardada, ...notas]
+            esNueva ? [guardada, ...notas] : notas.map((n) => (n.id === nota.id ? guardada : n))
         );
         if (eraActiva) this.notaActivaId.set(guardada.id);
         if (!this.categoriaActivaId()) this.categoriaActivaId.set(guardada.categoriaId);
         // Si el usuario siguió escribiendo mientras se guardaba, queda otro guardado en espera.
         this.estadoGuardado.set(this.temporizador ? 'pendiente' : 'guardado');
 
-        await this.refrescar();
+        if (this.enFavoritos()) this.quitarSiDejoDeSerFavorita(guardada);
+        if (esNueva) await this.actualizarCategorias();
         return guardada;
+    }
+
+    private quitarSiDejoDeSerFavorita(nota: Note): void {
+        if (nota.favorito) return;
+        this.notas.update((notas) => notas.filter((n) => n.id !== nota.id));
+        this.totalFavoritos.set(this.notas().length);
+        if (this.notaActivaId() !== nota.id) return;
+        // La nota salió de la vista; lo escrito ya está guardado.
+        this.cancelarTemporizador();
+        this.cerrarBorrador();
+        this.notaActivaId.set(null);
+    }
+
+    // Una nota nueva cambia el total de su categoría, y puede hacer aparecer «Sin categoría».
+    // Solo se listan las carpetas: no se lee ninguna nota.
+    private async actualizarCategorias(): Promise<void> {
+        try {
+            this.categorias.set(await this.repo.listarCategorias());
+        } catch (e) {
+            this.error.set(`No se pudo actualizar la lista de categorías: ${e}`);
+        }
     }
 
     // Relee categorías (contadores) y notas de la vista activa sin perder la selección.
@@ -511,14 +537,20 @@ export class NotesService {
         return this.repo.listarNotas(id);
     }
 
-    // En la vista de favoritos el contador sale de la propia lista; fuera de ella hay que recorrer las carpetas.
+    // Recorre todas las carpetas leyendo cada nota: solo al cargar una carpeta raíz. Después el
+    // contador se lleva en memoria con ajustarFavoritos().
     private async contarFavoritos(): Promise<void> {
-        if (this.enFavoritos()) return;
         try {
             this.totalFavoritos.set((await this.repo.listarFavoritas()).length);
         } catch (e) {
             this.error.set(`No se pudieron contar las notas favoritas: ${e}`);
         }
+    }
+
+    // En la vista de favoritos no hace falta: el contador sale de la propia lista.
+    private ajustarFavoritos(cambio: number): void {
+        if (this.enFavoritos()) return;
+        this.totalFavoritos.update((total) => Math.max(0, total + cambio));
     }
 
     private cancelarTemporizador(): void {
