@@ -1,8 +1,9 @@
-import { Injectable, inject, signal, computed } from '@angular/core';
+import { Injectable, SecurityContext, inject, signal, computed } from '@angular/core';
+import { DomSanitizer } from '@angular/platform-browser';
 import { open } from '@tauri-apps/plugin-dialog';
 import { marked } from 'marked';
-import { EliminacionCategoria, NOTES_REPOSITORY } from './notes.repository';
-import { SettingsService } from './settings.service';
+import { CambioExterno, EliminacionCategoria, NOTES_REPOSITORY } from './notes.repository';
+import { SettingsService, Tema } from './settings.service';
 import { idaYVueltaSegura } from './markdown-editor';
 import { sanearNombreCarpeta } from './frontmatter';
 import { Note, OrdenNotas, TITULO_POR_DEFECTO, crearNotaVacia, esTextoPlano } from '../models/note.model';
@@ -12,6 +13,9 @@ export interface Borrador {
     titulo: string;
     contenido: string;
 }
+
+// La nota en edición cambió por fuera de la app: su archivo se modificó o dejó de existir.
+export type Conflicto = 'modificada' | 'eliminada';
 
 export type EstadoGuardado = 'inactivo' | 'pendiente' | 'guardando' | 'guardado' | 'error';
 
@@ -27,12 +31,19 @@ const COMPARADORES: Record<OrdenNotas, (a: Note, b: Note) => number> = {
     creada: (a, b) => b.creadaEn.getTime() - a.creadaEn.getTime(),
 };
 
+const MENSAJE_CONFLICTO =
+    'La nota cambió fuera de Notara mientras la editabas: elige en el visor qué versión conservar.';
+
+const difieren = (a: Note, b: Note) =>
+    a.titulo !== b.titulo || a.contenido !== b.contenido || a.favorito !== b.favorito || a.tags.join() !== b.tags.join();
+
 const cuantasNotas = (total: number) => (total === 1 ? '1 nota' : `${total} notas`);
 
 @Injectable({ providedIn: 'root' })
 export class NotesService {
     private repo = inject(NOTES_REPOSITORY);
     private settings = inject(SettingsService);
+    private sanitizer = inject(DomSanitizer);
 
     readonly categorias = signal<Category[]>([]);
     readonly notas = signal<Note[]>([]);
@@ -45,6 +56,12 @@ export class NotesService {
     readonly aviso = signal<string | null>(null);
     readonly totalFavoritos = signal(0);
 
+    // Índice de la búsqueda global: todas las notas de todas las categorías, con su contenido.
+    // null = sin cargar. Se lee del disco en la primera búsqueda y después se mantiene en memoria:
+    // cada guardado lo actualiza y un cambio de estructura lo relee (o lo suelta si no hace falta).
+    private readonly todas = signal<Note[] | null>(null);
+    readonly indexando = signal(false);
+
     // Lo que el usuario está escribiendo. Vive aparte de `notas` para que refrescar
     // la lista desde disco nunca pise el texto en curso. null = modo lectura.
     readonly borrador = signal<Borrador | null>(null);
@@ -54,14 +71,20 @@ export class NotesService {
     readonly creando = signal(false);
     // true = editor enriquecido; false = texto plano (.txt, o Markdown que el editor no conservaría).
     readonly edicionEnriquecida = signal(false);
+    // Mientras no sea null no se guarda nada: lo escrito espera en el borrador a que el usuario
+    // elija entre su versión y la del disco con resolverConflicto().
+    readonly conflicto = signal<Conflicto | null>(null);
 
     private temporizador: ReturnType<typeof setTimeout> | null = null;
     private temporizadorAviso: ReturnType<typeof setTimeout> | null = null;
     // Las escrituras van en serie: guardar puede renombrar el archivo y cambiar el id de la nota.
     private cola: Promise<unknown> = Promise.resolve();
+    private dejarDeVigilar: (() => void) | null = null;
+    private revisionEnCola = false;
 
     readonly carpetaRaiz = computed(() => this.settings.carpetaRaiz());
     readonly orden = computed(() => this.settings.ordenNotas());
+    readonly tema = computed(() => this.settings.tema());
 
     private readonly inicializando = signal(true);
     // Hasta que termina inicializar(), una carpeta raíz nula no significa que no haya ninguna.
@@ -88,9 +111,16 @@ export class NotesService {
     // Una nota nueva necesita una carpeta: Favoritos reúne varias y la papelera no admite cambios.
     readonly puedeCrear = computed(() => !this.enFavoritos() && !this.enPapelera());
 
-    readonly notaActiva = computed(
-        () => this.notas().find((n) => n.id === this.notaActivaId()) ?? null
-    );
+    // Con texto en el buscador se busca en todas las categorías. La papelera es la excepción: su
+    // búsqueda no sale de ella.
+    readonly buscandoGlobal = computed(() => !!this.filtroBusqueda().trim() && !this.enPapelera());
+
+    // La nota abierta puede venir de un resultado de la búsqueda global, y entonces no está en la
+    // lista de la categoría activa sino en el índice.
+    readonly notaActiva = computed(() => {
+        const id = this.notaActivaId();
+        return this.notas().find((n) => n.id === id) ?? this.todas()?.find((n) => n.id === id) ?? null;
+    });
 
     // Categorías a las que puede moverse la nota activa: todas menos la suya.
     readonly categoriasDestino = computed(() => {
@@ -114,7 +144,10 @@ export class NotesService {
     readonly notasFiltradas = computed(() => {
         const q = this.filtroBusqueda().trim().toLowerCase();
         if (!q) return this.notasOrdenadas();
-        return this.notasOrdenadas().filter(
+        // Mientras el índice se carga se muestran las coincidencias de la vista activa.
+        const indice = this.buscandoGlobal() ? this.todas() : null;
+        const notas = indice ? [...indice].sort(COMPARADORES[this.orden()]) : this.notasOrdenadas();
+        return notas.filter(
             (n) => n.titulo.toLowerCase().includes(q) || n.contenido.toLowerCase().includes(q)
         );
     });
@@ -122,7 +155,10 @@ export class NotesService {
     readonly contenidoHtml = computed(() => {
         const nota = this.notaActiva();
         if (!nota) return '';
-        return marked.parse(nota.contenido, { async: false }) as string;
+        // Markdown admite HTML en línea y las notas pueden venir de fuera: el HTML que sale de aquí
+        // ya no lleva scripts, manejadores de eventos ni URLs `javascript:`.
+        const html = marked.parse(nota.contenido, { async: false }) as string;
+        return this.sanitizer.sanitize(SecurityContext.HTML, html) ?? '';
     });
 
     async inicializar(): Promise<void> {
@@ -148,6 +184,7 @@ export class NotesService {
     async recargar(): Promise<void> {
         this.cargando.set(true);
         this.error.set(null);
+        this.todas.set(null);
         try {
             const cats = await this.repo.listarCategorias();
             this.categorias.set(cats);
@@ -159,11 +196,157 @@ export class NotesService {
                 this.notaActivaId.set(null);
             }
             await this.contarFavoritos();
+            await this.vigilar();
         } catch (e) {
             this.error.set(`No se pudo leer la carpeta: ${e}`);
         } finally {
             this.cargando.set(false);
         }
+    }
+
+    // Empieza a vigilar la carpeta raíz actual, y deja de vigilar la anterior. Sin watcher la app
+    // funciona igual; solo deja de enterarse de lo que cambie por fuera.
+    private async vigilar(): Promise<void> {
+        this.dejarDeVigilar?.();
+        this.dejarDeVigilar = null;
+        try {
+            this.dejarDeVigilar = await this.repo.vigilar(() => this.alDetectarCambio());
+        } catch (e) {
+            this.error.set(`No se podrán detectar los cambios hechos fuera de Notara: ${e}`);
+        }
+    }
+
+    // El watcher avisa de cualquier movimiento en la carpeta, también de los guardados propios.
+    // La revisión va a la cola de escrituras: cuando le toca, la app ya terminó lo que estuviera
+    // escribiendo y el repositorio puede comparar el disco con lo que la app conoce.
+    private alDetectarCambio(): void {
+        if (this.revisionEnCola) return;
+        this.revisionEnCola = true;
+        void this.encolar(async () => {
+            this.revisionEnCola = false;
+            await this.aplicarCambiosExternos();
+        });
+    }
+
+    // Trae a la app lo que cambió por fuera sin tocar el estado del usuario: ni la categoría
+    // seleccionada, ni la nota abierta, ni lo que esté escribiendo.
+    private async aplicarCambiosExternos(): Promise<void> {
+        let cambio: CambioExterno;
+        try {
+            cambio = await this.repo.cambiosExternos();
+        } catch (e) {
+            this.error.set(`No se pudieron revisar los cambios hechos fuera de Notara: ${e}`);
+            return;
+        }
+        // Lo habitual: el aviso venía de un guardado de la propia app. No se lee nada más.
+        if (!cambio.notas.length && !cambio.carpetas) return;
+
+        const antes = this.notaActiva();
+        const estabaEnVista = !!antes && this.notas().some((n) => n.id === antes.id);
+        const editando = this.borrador() !== null;
+        try {
+            const cats = await this.repo.listarCategorias();
+            this.categorias.set(cats);
+
+            const vistaId = this.categoriaActivaId();
+            const vistaPerdida = !!vistaId && !this.esVista(vistaId) && !cats.some((c) => c.id === vistaId);
+            let notas = this.notas();
+            if (vistaPerdida) notas = [];
+            else if (vistaId && this.afectaALaVista(cambio, vistaId)) notas = await this.listarVista(vistaId);
+            this.notas.set(notas);
+            await this.actualizarIndice(notas);
+
+            // La categoría activa ya no existe. Si hay una nota en edición no se le mueve el suelo;
+            // si no, la selección queda vacía: no se elige otra categoría por el usuario.
+            if (vistaPerdida && !editando) {
+                this.categoriaActivaId.set(null);
+                this.filtroBusqueda.set('');
+                this.avisar('La categoría que estabas viendo se eliminó o se renombró fuera de Notara.');
+            }
+            if (antes) this.reconciliarNotaActiva(antes, estabaEnVista);
+            if (!this.enFavoritos()) await this.recontarFavoritos();
+        } catch (e) {
+            this.error.set(`No se pudieron cargar los cambios hechos fuera de Notara: ${e}`);
+        }
+    }
+
+    private afectaALaVista(cambio: CambioExterno, vistaId: string): boolean {
+        // Lo que pasa dentro de la papelera no se vigila.
+        if (vistaId === PAPELERA) return false;
+        if (vistaId === FAVORITOS || cambio.carpetas) return true;
+        return cambio.notas.some((n) => n.categoriaId === vistaId);
+    }
+
+    // `antes` es la nota abierta tal como la tenía la app; en las listas ya está lo que hay en disco.
+    private reconciliarNotaActiva(antes: Note, estabaEnVista: boolean): void {
+        const ahora = this.notaActiva();
+
+        if (!this.borrador()) {
+            // En lectura la nota se actualiza sola, porque sale de las listas recién leídas.
+            if (!ahora) {
+                this.notaActivaId.set(null);
+                this.avisar(`«${antes.titulo}» ya no está: se eliminó o se movió fuera de Notara.`);
+            } else if (difieren(antes, ahora)) {
+                this.avisar(`«${ahora.titulo}» se actualizó con los cambios hechos fuera de Notara.`);
+            }
+            return;
+        }
+
+        // En edición manda lo que el usuario está escribiendo: no se pisa ni se cierra la nota.
+        let conflicto: Conflicto | null = null;
+        if (!ahora) {
+            // La nota sigue en la lista, tal como estaba, hasta que el usuario decida.
+            if (estabaEnVista) this.notas.update((notas) => [antes, ...notas]);
+            else this.todas.update((todas) => todas && [antes, ...todas]);
+            conflicto = 'eliminada';
+        } else if (difieren(antes, ahora)) {
+            conflicto = 'modificada';
+        }
+        if (!conflicto) {
+            // Lo de fuera resultó ser igual a lo que ya había: si un guardado se quedó a medias
+            // por esa sospecha, se reintenta.
+            if (this.estadoGuardado() === 'error' && !this.conflicto()) this.actualizarBorrador({});
+            return;
+        }
+        if (conflicto === this.conflicto()) return;
+        this.conflicto.set(conflicto);
+        this.cancelarTemporizador();
+        this.estadoGuardado.set('error');
+        this.avisar(
+            conflicto === 'eliminada'
+                ? `«${antes.titulo}» se eliminó o se movió fuera de Notara mientras la editabas.`
+                : `«${antes.titulo}» cambió fuera de Notara mientras la editabas.`
+        );
+    }
+
+    // 'mia' guarda lo que se está escribiendo encima de lo que haya en disco; 'disco' lo descarta
+    // y deja la nota como está en disco (o la cierra, si ya no existe).
+    async resolverConflicto(conservar: 'mia' | 'disco'): Promise<void> {
+        const conflicto = this.conflicto();
+        if (!conflicto) return;
+        this.cancelarTemporizador();
+        await this.encolar(async () => {
+            const nota = this.notaActiva();
+            if (!nota || !this.borrador()) return;
+            this.conflicto.set(null);
+
+            if (conservar === 'disco') {
+                this.cerrarBorrador();
+                if (conflicto === 'eliminada') {
+                    this.notaActivaId.set(null);
+                    await this.refrescar();
+                }
+                return;
+            }
+            // Sin comparar con la nota de la lista: si se eliminó, hay que volver a escribirla
+            // aunque el borrador no tenga cambios.
+            if (!(await this.persistir(this.conBorrador(nota)))) {
+                // No se pudo escribir (p. ej. ya no existe la carpeta): la decisión sigue abierta.
+                this.conflicto.set(conflicto);
+            } else if (conflicto === 'eliminada') {
+                await this.actualizarCategorias();
+            }
+        });
     }
 
     async seleccionarCategoria(id: string): Promise<void> {
@@ -181,6 +364,40 @@ export class NotesService {
         } finally {
             this.cargando.set(false);
         }
+    }
+
+    // Texto del buscador. La primera búsqueda global lee todas las notas; las siguientes filtran
+    // el índice en memoria.
+    async buscar(texto: string): Promise<void> {
+        this.filtroBusqueda.set(texto);
+        if (!this.buscandoGlobal() || this.todas()) return;
+        // En la cola, para no leer una nota a medio guardar o a medio renombrar.
+        await this.encolar(async () => {
+            if (this.buscandoGlobal() && !this.todas()) await this.leerIndice();
+        });
+    }
+
+    private async leerIndice(): Promise<void> {
+        this.indexando.set(true);
+        try {
+            this.todas.set(await this.repo.listarTodas());
+        } catch (e) {
+            this.todas.set(null);
+            this.error.set(`No se pudo buscar en todas las notas: ${e}`);
+        } finally {
+            this.indexando.set(false);
+        }
+    }
+
+    // Tras un cambio que puede dejar el índice desfasado: se relee si se está usando (hay una
+    // búsqueda en curso, o la nota abierta no es de la vista activa) y, si no, se suelta para que
+    // lo cargue la próxima búsqueda.
+    private async actualizarIndice(notasVista: Note[]): Promise<void> {
+        if (!this.todas()) return;
+        const id = this.notaActivaId();
+        const notaFueraDeLaVista = !!id && !notasVista.some((n) => n.id === id);
+        if (this.buscandoGlobal() || notaFueraDeLaVista) await this.leerIndice();
+        else this.todas.set(null);
     }
 
     // Devuelve false si hubo un error y conviene dejar el campo abierto para corregir el nombre.
@@ -310,6 +527,14 @@ export class NotesService {
         }
     }
 
+    async cambiarTema(tema: Tema): Promise<void> {
+        try {
+            await this.settings.guardarTema(tema);
+        } catch (e) {
+            this.error.set(`No se pudo guardar el tema elegido: ${e}`);
+        }
+    }
+
     nombreCategoria(id: string): string {
         if (id === SIN_CATEGORIA) return 'Sin categoría';
         return this.categorias().find((c) => c.id === id)?.nombre ?? id;
@@ -369,12 +594,25 @@ export class NotesService {
         const actual = this.borrador();
         if (!actual) return;
         this.borrador.set({ ...actual, ...cambios });
+        // Con un conflicto abierto se sigue escribiendo, pero no se guarda hasta resolverlo.
+        if (this.conflicto()) return;
         this.estadoGuardado.set('pendiente');
         this.cancelarTemporizador();
         this.temporizador = setTimeout(() => {
             this.temporizador = null;
             void this.guardarBorrador();
         }, ESPERA_AUTOGUARDADO);
+    }
+
+    alternarEdicion(): Promise<boolean> {
+        if (this.editando()) return this.salirDeEdicion();
+        this.editar();
+        return Promise.resolve(true);
+    }
+
+    // Guarda ya lo que haya en el borrador, sin esperar al autoguardado.
+    guardarAhora(): Promise<boolean> {
+        return this.guardarBorrador();
     }
 
     // Guarda lo pendiente y vuelve a lectura. Si el guardado falla se queda en edición
@@ -389,6 +627,7 @@ export class NotesService {
     private cerrarBorrador(): void {
         this.borrador.set(null);
         this.creando.set(false);
+        this.conflicto.set(null);
         this.estadoGuardado.set('inactivo');
     }
 
@@ -446,8 +685,9 @@ export class NotesService {
                 this.error.set(`No se pudo mover la nota: ${e}`);
                 return;
             }
-            // En Favoritos la nota sigue en la lista, con otro id; en su categoría deja de estar.
-            this.notaActivaId.set(this.enFavoritos() ? movida.id : null);
+            // En Favoritos y entre los resultados de una búsqueda la nota sigue en la lista, con
+            // otro id; en su categoría deja de estar.
+            this.notaActivaId.set(this.enFavoritos() || this.buscandoGlobal() ? movida.id : null);
             await this.refrescar();
             this.avisar(`«${movida.titulo}» se movió a ${this.nombreCategoria(categoriaId)}.`);
         });
@@ -527,6 +767,7 @@ export class NotesService {
         return this.encolar(async () => {
             const nota = this.notaActiva();
             if (!nota || !this.borrador()) return true;
+            if (this.conflicto()) return this.rechazarPorConflicto();
             const editada = this.conBorrador(nota);
             if (editada.titulo === nota.titulo && editada.contenido === nota.contenido) {
                 if (this.estadoGuardado() === 'pendiente') this.estadoGuardado.set('guardado');
@@ -541,10 +782,17 @@ export class NotesService {
         return this.encolar(async () => {
             const nota = this.notaActiva();
             if (!nota || esTextoPlano(nota) || this.enPapelera()) return false;
+            if (this.conflicto()) return this.rechazarPorConflicto();
             const cambio = cambios(nota);
             if (!cambio) return false;
             return (await this.persistir({ ...this.conBorrador(nota), ...cambio })) !== null;
         });
+    }
+
+    // Guardar ahora pisaría, sin preguntar, lo que cambió por fuera.
+    private rechazarPorConflicto(): boolean {
+        this.error.set(MENSAJE_CONFLICTO);
+        return false;
     }
 
     private conBorrador(nota: Note): Note {
@@ -564,30 +812,40 @@ export class NotesService {
         } catch (e) {
             this.estadoGuardado.set('error');
             this.error.set(`No se pudo guardar la nota: ${e}`);
+            // El repositorio se niega a escribir sobre un archivo que cambió por fuera: si fue
+            // eso, la revisión lo convierte en un conflicto que el usuario puede resolver.
+            this.alDetectarCambio();
             return null;
         }
 
-        // Guardar solo cambia esta nota: se actualiza en la lista en memoria, sin releer la vista
-        // del disco. Del orden se encarga `notasOrdenadas`.
-        const esNueva = !this.notas().some((n) => n.id === nota.id);
-        this.notas.update((notas) =>
-            esNueva ? [guardada, ...notas] : notas.map((n) => (n.id === nota.id ? guardada : n))
-        );
+        // Guardar solo cambia esta nota: se actualiza en las listas en memoria (la vista y, si
+        // está cargado, el índice de búsqueda), sin releer nada del disco. Del orden se encarga
+        // `notasOrdenadas`.
+        const enVista = this.notas().some((n) => n.id === nota.id);
+        // Una nota abierta desde la búsqueda global no está en la vista y no por eso es nueva.
+        const esNueva = !enVista && !this.todas()?.some((n) => n.id === nota.id);
+        const actualizar = (notas: Note[]) =>
+            esNueva ? [guardada, ...notas] : notas.map((n) => (n.id === nota.id ? guardada : n));
+        this.notas.update(actualizar);
+        this.todas.update((todas) => todas && actualizar(todas));
         if (eraActiva) this.notaActivaId.set(guardada.id);
         if (!this.categoriaActivaId()) this.categoriaActivaId.set(guardada.categoriaId);
         // Si el usuario siguió escribiendo mientras se guardaba, queda otro guardado en espera.
         this.estadoGuardado.set(this.temporizador ? 'pendiente' : 'guardado');
 
-        if (this.enFavoritos()) this.quitarSiDejoDeSerFavorita(guardada);
+        if (this.enFavoritos()) this.ajustarVistaFavoritos(guardada, enVista);
         if (esNueva) await this.actualizarCategorias();
         return guardada;
     }
 
-    private quitarSiDejoDeSerFavorita(nota: Note): void {
-        if (nota.favorito) return;
-        this.notas.update((notas) => notas.filter((n) => n.id !== nota.id));
+    // En la vista Favoritos la lista es la de favoritas: una nota entra o sale de ella al
+    // cambiar su marca. Entrar solo pasa con una nota abierta desde la búsqueda global.
+    private ajustarVistaFavoritos(nota: Note, enVista: boolean): void {
+        if (nota.favorito === enVista) return;
+        this.notas.update((notas) => (nota.favorito ? [nota, ...notas] : notas.filter((n) => n.id !== nota.id)));
         this.totalFavoritos.set(this.notas().length);
-        if (this.notaActivaId() !== nota.id) return;
+        // Entre los resultados de una búsqueda la nota sigue a la vista aunque ya no sea favorita.
+        if (nota.favorito || this.buscandoGlobal() || this.notaActivaId() !== nota.id) return;
         // La nota salió de la vista; lo escrito ya está guardado.
         this.cancelarTemporizador();
         this.cerrarBorrador();
@@ -619,7 +877,8 @@ export class NotesService {
 
             const notas = vistaId ? await this.listarVista(vistaId) : [];
             this.notas.set(notas);
-            if (!notas.some((n) => n.id === this.notaActivaId())) {
+            await this.actualizarIndice(notas);
+            if (!this.notaActiva()) {
                 // La nota salió de la vista (p. ej. dejó de ser favorita); lo escrito ya está guardado.
                 this.cancelarTemporizador();
                 this.cerrarBorrador();
@@ -652,6 +911,14 @@ export class NotesService {
         } catch (e) {
             this.error.set(`No se pudieron contar las notas favoritas: ${e}`);
         }
+    }
+
+    // Tras un cambio externo. Si el índice de búsqueda está cargado, acaba de releerse y el
+    // total sale de él; si no, hay que recorrer las carpetas.
+    private async recontarFavoritos(): Promise<void> {
+        const indice = this.todas();
+        if (indice) this.totalFavoritos.set(indice.filter((n) => n.favorito).length);
+        else await this.contarFavoritos();
     }
 
     // En la vista de favoritos no hace falta: el contador sale de la propia lista.

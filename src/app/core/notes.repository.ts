@@ -28,6 +28,14 @@ export interface EliminacionCategoria {
     motivo?: string;
 }
 
+// Lo que cambió en la carpeta de notas sin que lo hiciera la app.
+export interface CambioExterno {
+    // Notas creadas, modificadas o eliminadas, con la categoría a la que corresponde su carpeta.
+    notas: { id: string; categoriaId: string }[];
+    // Apareció o desapareció alguna carpeta de categoría.
+    carpetas: boolean;
+}
+
 export interface NotesRepository {
     listarCategorias(): Promise<Category[]>;
     // Falla si ya existe una carpeta con ese nombre. El nombre llega ya saneado.
@@ -38,6 +46,8 @@ export interface NotesRepository {
     // excepción: se devuelve para poder contar qué se movió y qué no.
     eliminarCategoria(id: string): Promise<EliminacionCategoria>;
     listarNotas(categoriaId: string): Promise<Note[]>;
+    // Todas las notas de todas las categorías, con su contenido. No incluye la papelera.
+    listarTodas(): Promise<Note[]>;
     // Notas marcadas como favoritas en cualquier categoría.
     listarFavoritas(): Promise<Note[]>;
     obtenerNota(id: string): Promise<Note | null>;
@@ -56,6 +66,13 @@ export interface NotesRepository {
     moverNota(id: string, categoriaId: string): Promise<Note>;
     // Abre el explorador de archivos del sistema con el archivo de la nota seleccionado.
     mostrarEnExplorador(id: string): Promise<void>;
+    // Vigila la carpeta raíz. `alDetectar` solo dice que algo se movió en el disco, y eso incluye
+    // lo que escribe la propia app: qué cambió de verdad por fuera lo responde `cambiosExternos`.
+    // Devuelve la función que deja de vigilar.
+    vigilar(alDetectar: () => void): Promise<() => void>;
+    // Cambios hechos por fuera desde la última consulta. No incluye lo que la app leyó o escribió
+    // ella misma, ni nada de la papelera. Debe llamarse sin escrituras de la app en curso.
+    cambiosExternos(): Promise<CambioExterno>;
 }
 
 export const NOTES_REPOSITORY = new InjectionToken<NotesRepository>('NotesRepository');

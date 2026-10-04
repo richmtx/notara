@@ -1,11 +1,13 @@
 import { Component, ElementRef, effect, inject, signal, viewChild } from '@angular/core';
 import { NotesService } from '../../core/notes.service';
+import { Tema } from '../../core/settings.service';
 import { FAVORITOS, PAPELERA, SIN_CATEGORIA } from '../../models/category.model';
+import { CerrarAlSalirDirective } from '../../shared/cerrar-al-salir.directive';
 
 @Component({
   selector: 'app-sidebar',
   standalone: true,
-  imports: [],
+  imports: [CerrarAlSalirDirective],
   templateUrl: './sidebar.component.html',
   styleUrl: './sidebar.component.css',
 })
@@ -16,7 +18,23 @@ export class SidebarComponent {
   readonly papelera = PAPELERA;
   readonly sinCategoria = SIN_CATEGORIA;
 
+  readonly atajos: { teclas: string[]; accion: string }[] = [
+    { teclas: ['Ctrl', 'N'], accion: 'Nueva nota' },
+    { teclas: ['Ctrl', 'K'], accion: 'Buscar en todas las notas' },
+    { teclas: ['Ctrl', 'E'], accion: 'Editar o volver a lectura' },
+    { teclas: ['Ctrl', 'S'], accion: 'Guardar ahora' },
+    { teclas: ['Esc'], accion: 'Salir de la edición' },
+  ];
+
+  readonly temas: { valor: Tema; etiqueta: string; icono: string }[] = [
+    { valor: 'claro', etiqueta: 'Claro', icono: 'ti-sun' },
+    { valor: 'oscuro', etiqueta: 'Oscuro', icono: 'ti-moon' },
+    { valor: 'auto', etiqueta: 'Automático (sistema)', icono: 'ti-device-desktop' },
+  ];
+
   creandoCategoria = signal(false);
+  menuAtajos = signal(false);
+  menuTema = signal(false);
 
   // Categoría cuya eliminación se está confirmando y cuántas notas contiene.
   confirmacion = signal<{ id: string; notas: number } | null>(null);
@@ -63,6 +81,15 @@ export class SidebarComponent {
       this.eliminando.set(false);
       this.confirmacion.set(null);
     }
+  }
+
+  temaActual(): { valor: Tema; etiqueta: string; icono: string } {
+    return this.temas.find((t) => t.valor === this.notes.tema()) ?? this.temas[2];
+  }
+
+  elegirTema(tema: Tema): void {
+    this.menuTema.set(false);
+    void this.notes.cambiarTema(tema);
   }
 
   pregunta(nombre: string): string {

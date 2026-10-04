@@ -9,14 +9,40 @@
     --text-muted: #8a857c;
     --accent: #b8541f;
     --accent-soft: #f7e9e0;
+    /* Texto e iconos sobre un fondo de color de acento. */
+    --sobre-accent: #ffffff;
     /* Rojo del botón de cerrar de Windows al pasar el cursor. */
     --cerrar: #c42b1c;
+
+    /* Barras de desplazamiento y controles nativos acordes con el tema. */
+    color-scheme: light;
 
     --font-ui: 'Quicksand', system-ui, -apple-system, 'Segoe UI', sans-serif;
     --font-titulo: 'Quicksand', system-ui, sans-serif;
 
     --radius: 8px;
     --alto-barra: 32px;
+}
+
+/* Tema oscuro: los mismos tokens con otros valores. El atributo lo pone TemaService según la
+   preferencia guardada (claro, oscuro o el tema del sistema). Las superficies se aclaran a medida
+   que suben de plano (fondo, sidebar, contenido, panel) y el terracota se aclara para mantener
+   el contraste de texto (4.5:1) sobre todas ellas. */
+:root[data-tema='oscuro'] {
+    --bg: #1c1b19;
+    --bg-sidebar: #211f1c;
+    --bg-contenido: #26241f;
+    --panel: #2c2a25;
+    --hover: #37342d;
+    --border: #3a3731;
+    --text: #eae7e0;
+    --text-muted: #a39e94;
+    --accent: #de7c48;
+    --accent-soft: #3a2a20;
+    /* El blanco no alcanza contraste sobre el terracota aclarado; el fondo oscuro sí. */
+    --sobre-accent: #1c1b19;
+
+    color-scheme: dark;
 }
 
 * {

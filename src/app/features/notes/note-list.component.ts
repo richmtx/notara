@@ -1,4 +1,4 @@
-import { Component, effect, inject, signal } from '@angular/core';
+import { Component, ElementRef, effect, inject, signal, viewChild } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { DatePipe } from '@angular/common';
 import { NotesService } from '../../core/notes.service';
@@ -24,12 +24,30 @@ export class NoteListComponent {
   confirmandoVaciar = signal(false);
   menuOrden = signal(false);
 
+  private campoBusqueda = viewChild.required<ElementRef<HTMLInputElement>>('campoBusqueda');
+
   constructor() {
     // Una confirmación a medias no sobrevive a cambiar de vista.
     effect(() => {
       this.notes.categoriaActivaId();
       this.confirmandoVaciar.set(false);
     });
+  }
+
+  // La búsqueda abarca todas las categorías, salvo en la papelera, que solo se busca a sí misma.
+  textoAyuda(): string {
+    return this.notes.enPapelera() ? 'Buscar en la papelera...' : 'Buscar en todas las notas...';
+  }
+
+  enfocarBusqueda(): void {
+    const campo = this.campoBusqueda().nativeElement;
+    campo.focus();
+    campo.select();
+  }
+
+  limpiar(): void {
+    void this.notes.buscar('');
+    this.campoBusqueda().nativeElement.focus();
   }
 
   ordenar(orden: OrdenNotas): void {

@@ -34,7 +34,7 @@ p {
     border: none;
     border-radius: var(--radius);
     background: var(--accent);
-    color: #fff;
+    color: var(--sobre-accent);
     font-size: 14px;
     font-weight: 500;
 }

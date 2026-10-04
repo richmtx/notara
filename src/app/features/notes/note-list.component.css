@@ -36,6 +36,7 @@
 
 .campo input {
     flex: 1;
+    min-width: 0;
     border: none;
     outline: none;
     background: none;
@@ -48,6 +49,29 @@
 
 .campo input::placeholder {
     color: var(--text-muted);
+}
+
+.limpiar {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    margin-right: -4px;
+    padding: 0;
+    border: none;
+    border-radius: 4px;
+    background: none;
+    color: var(--text-muted);
+}
+
+.limpiar i {
+    font-size: 14px;
+}
+
+.limpiar:hover {
+    background: var(--hover);
+    color: var(--text);
 }
 
 .filtro {

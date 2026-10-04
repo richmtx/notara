@@ -267,6 +267,106 @@ footer {
     cursor: not-allowed;
 }
 
+/* Fila de utilidades al pie: botones de solo icono cuyos menús se abren hacia arriba. */
+.utilidades {
+    display: flex;
+    gap: 2px;
+    margin-top: 8px;
+    padding: 0 2px;
+}
+
+.ancla {
+    position: relative;
+}
+
+.utilidad {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    border: none;
+    border-radius: 4px;
+    background: none;
+    color: var(--text-muted);
+}
+
+.utilidad i {
+    font-size: 17px;
+}
+
+.utilidad:hover,
+.utilidad.abierto {
+    background: var(--hover);
+    color: var(--text);
+}
+
+.menu.arriba {
+    top: auto;
+    right: auto;
+    bottom: calc(100% + 6px);
+    left: 0;
+}
+
+.menu-titulo {
+    margin: 0;
+    padding: 6px 10px 4px;
+    font-size: 11.5px;
+    font-weight: 600;
+    color: var(--text-muted);
+}
+
+.opcion.elegida {
+    font-weight: 700;
+}
+
+.opcion .marca {
+    color: var(--accent);
+}
+
+.atajos {
+    min-width: 270px;
+}
+
+.atajos dl {
+    margin: 0;
+    padding: 0 10px 6px;
+}
+
+.atajo {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 5px 0;
+    font-size: 12.5px;
+}
+
+.atajo dt {
+    color: var(--text);
+}
+
+.atajo dd {
+    display: flex;
+    gap: 4px;
+    margin: 0;
+}
+
+kbd {
+    min-width: 22px;
+    padding: 2px 6px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: var(--bg);
+    font-family: inherit;
+    font-size: 11.5px;
+    font-weight: 600;
+    line-height: 1.3;
+    color: var(--text-muted);
+    text-align: center;
+}
+
 .sidebar.colapsado {
     padding: 18px 8px;
 }

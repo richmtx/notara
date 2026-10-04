@@ -62,5 +62,54 @@
             <i class="ti ti-folder"></i>
             <span>Cambiar carpeta</span>
         </button>
+
+        <div class="utilidades">
+            <div class="ancla" (appCerrarAlSalir)="menuTema.set(false)">
+                <button class="utilidad" [class.abierto]="menuTema()" [title]="'Tema: ' + temaActual().etiqueta"
+                    [attr.aria-label]="'Tema: ' + temaActual().etiqueta" aria-haspopup="menu"
+                    [attr.aria-expanded]="menuTema()" (click)="menuTema.set(!menuTema())">
+                    <i class="ti" [class]="temaActual().icono" aria-hidden="true"></i>
+                </button>
+                @if (menuTema()) {
+                <div class="menu arriba" role="menu" aria-label="Tema">
+                    <p class="menu-titulo">Tema</p>
+                    @for (tema of temas; track tema.valor) {
+                    <button class="opcion" role="menuitemradio" [class.elegida]="tema.valor === notes.tema()"
+                        [attr.aria-checked]="tema.valor === notes.tema()" (click)="elegirTema(tema.valor)">
+                        <i class="ti" [class]="tema.icono" aria-hidden="true"></i>
+                        <span>{{ tema.etiqueta }}</span>
+                        @if (tema.valor === notes.tema()) {
+                        <i class="ti ti-check marca" aria-hidden="true"></i>
+                        }
+                    </button>
+                    }
+                </div>
+                }
+            </div>
+            <div class="ancla" (appCerrarAlSalir)="menuAtajos.set(false)">
+                <button class="utilidad" [class.abierto]="menuAtajos()" title="Atajos de teclado"
+                    aria-label="Atajos de teclado" aria-haspopup="dialog" [attr.aria-expanded]="menuAtajos()"
+                    (click)="menuAtajos.set(!menuAtajos())">
+                    <i class="ti ti-keyboard" aria-hidden="true"></i>
+                </button>
+                @if (menuAtajos()) {
+                <div class="menu arriba atajos" role="dialog" aria-label="Atajos de teclado">
+                    <p class="menu-titulo">Atajos de teclado</p>
+                    <dl>
+                        @for (atajo of atajos; track atajo.accion) {
+                        <div class="atajo">
+                            <dt>{{ atajo.accion }}</dt>
+                            <dd>
+                                @for (tecla of atajo.teclas; track tecla) {
+                                <kbd>{{ tecla }}</kbd>
+                                }
+                            </dd>
+                        </div>
+                        }
+                    </dl>
+                </div>
+                }
+            </div>
+        </div>
     </footer>
 </aside>

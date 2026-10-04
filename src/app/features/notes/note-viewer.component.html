@@ -56,8 +56,9 @@
         } @else {
         <div class="acciones">
             <button [class.activo]="notes.editando()" [attr.aria-pressed]="notes.editando()"
-                [title]="notes.editando() ? 'Salir de edición' : 'Editar'"
-                [attr.aria-label]="notes.editando() ? 'Salir de edición' : 'Editar'" (click)="alternarEdicion()">
+                [title]="notes.editando() ? 'Salir de edición (Esc)' : 'Editar (Ctrl+E)'"
+                [attr.aria-label]="notes.editando() ? 'Salir de edición' : 'Editar'"
+                (click)="notes.alternarEdicion()">
                 <i class="ti" [class.ti-pencil]="!notes.editando()" [class.ti-eye]="notes.editando()"
                     aria-hidden="true"></i>
             </button>
@@ -112,6 +113,27 @@
 
     @if (notes.notaActiva(); as nota) {
     <div class="cuerpo">
+        @if (notes.conflicto(); as conflicto) {
+        <div class="conflicto" role="alert">
+            <i class="ti ti-alert-triangle" aria-hidden="true"></i>
+            <p>
+                @if (conflicto === 'eliminada') {
+                Esta nota se eliminó o se movió fuera de Notara mientras la editabas.
+                } @else {
+                Esta nota cambió fuera de Notara mientras la editabas.
+                }
+                Lo que escribiste sigue aquí, sin guardar.
+            </p>
+            <div class="grupo">
+                <button class="boton" (click)="notes.resolverConflicto('disco')">
+                    {{ conflicto === 'eliminada' ? 'Descartar y cerrar' : 'Cargar la versión del disco' }}
+                </button>
+                <button class="boton peligro" (click)="notes.resolverConflicto('mia')">
+                    {{ conflicto === 'eliminada' ? 'Guardarla de nuevo' : 'Conservar mi versión' }}
+                </button>
+            </div>
+        </div>
+        }
         @if (notes.borrador(); as borrador) {
         <input #campoTitulo class="titulo-editable" type="text" aria-label="Título de la nota"
             placeholder="Nota sin título" [value]="borrador.titulo"

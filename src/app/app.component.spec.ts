@@ -4,6 +4,7 @@ import { MockNotesRepository } from './core/mock-notes.repository';
 import { NOTES_REPOSITORY } from './core/notes.repository';
 import { NotesService } from './core/notes.service';
 import { SettingsService } from './core/settings.service';
+import { FAVORITOS, PAPELERA } from './models/category.model';
 
 describe('AppComponent', () => {
   let fixture: ComponentFixture<AppComponent>;
@@ -72,6 +73,113 @@ describe('AppComponent', () => {
     await arrancar();
     expect(elemento().querySelector('app-welcome')).not.toBeNull();
     expect(elemento().querySelector('.layout')).toBeNull();
+  });
+
+  describe('atajos de teclado', () => {
+    let notes: NotesService;
+
+    // La tecla sale del elemento que tenga el foco, como en el navegador.
+    async function pulsar(key: string, ctrlKey = true, desde: Element = document.body): Promise<KeyboardEvent> {
+      const evento = new KeyboardEvent('keydown', { key, ctrlKey, bubbles: true, cancelable: true });
+      desde.dispatchEvent(evento);
+      await fixture.whenStable();
+      fixture.detectChanges();
+      return evento;
+    }
+
+    async function abrir(categoriaId: string, notaId: string): Promise<void> {
+      await notes.seleccionarCategoria(categoriaId);
+      await notes.seleccionarNota(notaId);
+      fixture.detectChanges();
+    }
+
+    beforeEach(async () => {
+      settings.carpetaRaiz.set('C:\\notas');
+      notes = TestBed.inject(NotesService);
+      await arrancar();
+    });
+
+    it('Ctrl+N crea una nota en la categoría activa', async () => {
+      await notes.seleccionarCategoria('aws');
+      const evento = await pulsar('n');
+      expect(evento.defaultPrevented).toBeTrue();
+      expect(notes.creando()).toBeTrue();
+      expect(notes.notaActiva()?.categoriaId).toBe('aws');
+    });
+
+    it('Ctrl+N no crea nada en Favoritos ni en la papelera', async () => {
+      const guardar = spyOn(TestBed.inject(NOTES_REPOSITORY), 'guardarNota').and.callThrough();
+      for (const vista of [FAVORITOS, PAPELERA]) {
+        await notes.seleccionarCategoria(vista);
+        await pulsar('n');
+        expect(notes.creando()).toBeFalse();
+      }
+      expect(guardar).not.toHaveBeenCalled();
+    });
+
+    it('Ctrl+K lleva el foco al buscador', async () => {
+      await pulsar('k');
+      expect(document.activeElement).toBe(elemento().querySelector('app-note-list .campo input'));
+    });
+
+    it('Ctrl+E alterna entre lectura y edición', async () => {
+      await abrir('trabajo', '1');
+      await pulsar('e');
+      expect(notes.editando()).toBeTrue();
+      await pulsar('e');
+      expect(notes.editando()).toBeFalse();
+    });
+
+    it('Ctrl+S guarda sin esperar al autoguardado', async () => {
+      await abrir('trabajo', '1');
+      notes.editar();
+      notes.actualizarBorrador({ contenido: 'Guardado con el atajo' });
+      expect(notes.estadoGuardado()).toBe('pendiente');
+      await pulsar('s');
+      expect(notes.estadoGuardado()).toBe('guardado');
+      expect(notes.notaActiva()?.contenido).toBe('Guardado con el atajo');
+      expect(notes.editando()).toBeTrue();
+    });
+
+    it('Escape guarda lo pendiente y sale de la edición', async () => {
+      await abrir('trabajo', '1');
+      notes.editar();
+      notes.actualizarBorrador({ contenido: 'Guardado al salir' });
+      await pulsar('Escape', false);
+      expect(notes.editando()).toBeFalse();
+      expect(notes.notaActiva()?.contenido).toBe('Guardado al salir');
+    });
+
+    it('mientras se escribe el contenido solo valen Ctrl+S, Ctrl+E y Escape', async () => {
+      await abrir('trabajo', '1');
+      notes.editar();
+      // El editor enriquecido se monta tras el siguiente render.
+      fixture.detectChanges();
+      await fixture.whenStable();
+      const editor = elemento().querySelector('app-markdown-editor .ProseMirror') as HTMLElement;
+      expect(editor).not.toBeNull();
+      editor.focus();
+
+      const nueva = await pulsar('n', true, editor);
+      expect(nueva.defaultPrevented).toBeFalse();
+      expect(notes.creando()).toBeFalse();
+      await pulsar('k', true, editor);
+      expect(document.activeElement).toBe(editor);
+
+      notes.actualizarBorrador({ contenido: 'Desde el editor' });
+      await pulsar('s', true, editor);
+      expect(notes.notaActiva()?.contenido).toBe('Desde el editor');
+      await pulsar('e', true, editor);
+      expect(notes.editando()).toBeFalse();
+    });
+
+    it('Escape en el buscador no saca de la edición', async () => {
+      await abrir('trabajo', '1');
+      notes.editar();
+      const buscador = elemento().querySelector('app-note-list .campo input') as HTMLElement;
+      await pulsar('Escape', false, buscador);
+      expect(notes.editando()).toBeTrue();
+    });
   });
 
   it('muestra las notas cuando hay carpeta raíz configurada', async () => {

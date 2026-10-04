@@ -50,14 +50,6 @@ export class NoteViewerComponent {
     effect(() => this.campoEtiqueta()?.nativeElement.focus());
   }
 
-  alternarEdicion(): void {
-    if (this.notes.editando()) {
-      void this.notes.salirDeEdicion();
-    } else {
-      this.notes.editar();
-    }
-  }
-
   async eliminar(): Promise<void> {
     this.confirmandoEliminar.set(false);
     await this.notes.eliminarNotaActiva();
@@ -88,13 +80,13 @@ export class NoteViewerComponent {
     await this.notes.eliminarDefinitivamente();
   }
 
-  // Por qué «Nueva nota» está deshabilitado, cuando lo está.
+  // El atajo de «Nueva nota» o, si está deshabilitado, por qué lo está.
   pistaCrear(): string {
     if (this.notes.enFavoritos()) {
       return 'Favoritos reúne notas de varias categorías: elige una categoría para crear una nota';
     }
     if (this.notes.enPapelera()) return 'La papelera es de solo lectura: elige una categoría para crear una nota';
-    return '';
+    return 'Nueva nota (Ctrl+N)';
   }
 
   // Cancelar una nota recién creada: solo se confirma si ya hay algo escrito que perder.

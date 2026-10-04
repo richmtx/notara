@@ -1,8 +1,8 @@
 import { Injectable, inject } from '@angular/core';
 import { invoke } from '@tauri-apps/api/core';
 import { revealItemInDir } from '@tauri-apps/plugin-opener';
-import { exists, mkdir, readDir, readTextFile, remove, rename, stat, writeTextFile } from '@tauri-apps/plugin-fs';
-import { ContenidoCategoria, EliminacionCategoria, NotesRepository, Restauracion } from './notes.repository';
+import { exists, mkdir, readDir, readTextFile, remove, rename, stat, watch, writeTextFile } from '@tauri-apps/plugin-fs';
+import { CambioExterno, ContenidoCategoria, EliminacionCategoria, NotesRepository, Restauracion } from './notes.repository';
 import { SettingsService } from './settings.service';
 import { parsearFrontmatter, sanearNombreArchivo, serializarFrontmatter } from './frontmatter';
 import { Note } from '../models/note.model';
@@ -10,11 +10,40 @@ import { Category, SIN_CATEGORIA } from '../models/category.model';
 
 const EXTENSIONES = ['.md', '.txt'];
 const PAPELERA = '.papelera';
+// El watcher agrupa los eventos de este intervalo: un guardado (temporal, renombrado, fecha de
+// creación) llega como una sola ráfaga, cuando ya terminó.
+const ESPERA_WATCHER = 300;
+
+const esNota = (nombre: string) => EXTENSIONES.some((ext) => nombre.toLowerCase().endsWith(ext));
+
+// Qué puede significar para Notara un cambio en esa ruta de la carpeta raíz: una nota (suelta o
+// dentro de la carpeta de una categoría), una posible carpeta de categoría, o nada (null).
+export function clasificarRuta(ruta: string, raiz: string): 'nota' | 'carpeta' | null {
+    const base = `${raiz.replace(/[\\/]+$/, '')}\\`;
+    if (!ruta.toLowerCase().startsWith(base.toLowerCase())) return null;
+    const partes = ruta.slice(base.length).split(/[\\/]/).filter(Boolean);
+    // Más abajo de categoría\nota no hay nada que la app gestione.
+    if (!partes.length || partes.length > 2) return null;
+    // La papelera, y cualquier otra carpeta oculta: sus movimientos son internos.
+    if (partes[0].startsWith('.')) return null;
+    const nombre = partes[partes.length - 1];
+    // Temporales de los guardados de la propia app.
+    if (nombre.toLowerCase().endsWith('.tmp')) return null;
+    if (esNota(nombre)) return 'nota';
+    return partes.length === 1 ? 'carpeta' : null;
+}
 
 @Injectable()
 export class TauriNotesRepository implements NotesRepository {
     private settings = inject(SettingsService);
     private cache = new Map<string, Note>();
+
+    // Para distinguir los cambios externos de los propios. De cada nota que la app lee o escribe
+    // se guarda su huella (fecha de modificación y tamaño), y de cada categoría, su carpeta. Un
+    // aviso del watcher solo cuenta como cambio externo si el disco ya no coincide con esto.
+    private huellas = new Map<string, string>();
+    private carpetas = new Set<string>();
+    private pendientes = new Set<string>();
 
     private get raiz(): string | null {
         return this.settings.carpetaRaiz();
@@ -63,6 +92,7 @@ export class TauriNotesRepository implements NotesRepository {
             });
         }
 
+        this.carpetas = new Set(categorias.filter((c) => c.carpeta).map((c) => c.carpeta.toLowerCase()));
         return categorias;
     }
 
@@ -73,6 +103,7 @@ export class TauriNotesRepository implements NotesRepository {
         const ruta = `${raiz}\\${nombre}`;
         if (await exists(ruta)) throw new Error(`Ya existe una carpeta llamada «${nombre}»`);
         await mkdir(ruta);
+        this.carpetas.add(nombre.toLowerCase());
         return { id: nombre, nombre, icono: 'folder', carpeta: nombre, total: 0 };
     }
 
@@ -98,6 +129,7 @@ export class TauriNotesRepository implements NotesRepository {
         } catch (e) {
             return { eliminada: false, movidas, pendientes: notas.length - movidas, ajenos: [], motivo: `${e}` };
         }
+        this.carpetas.delete(id.toLowerCase());
         return { eliminada: true, movidas, pendientes: 0, ajenos: [] };
     }
 
@@ -129,13 +161,16 @@ export class TauriNotesRepository implements NotesRepository {
         return this.porFechaEdicion(await this.leerCarpeta(carpeta, categoriaId));
     }
 
-    async listarFavoritas(): Promise<Note[]> {
-        const favoritas: Note[] = [];
+    async listarTodas(): Promise<Note[]> {
+        const todas: Note[] = [];
         for (const categoria of await this.listarCategorias()) {
-            const notas = await this.listarNotas(categoria.id);
-            favoritas.push(...notas.filter((n) => n.favorito));
+            todas.push(...(await this.listarNotas(categoria.id)));
         }
-        return this.porFechaEdicion(favoritas);
+        return this.porFechaEdicion(todas);
+    }
+
+    async listarFavoritas(): Promise<Note[]> {
+        return (await this.listarTodas()).filter((n) => n.favorito);
     }
 
     private porFechaEdicion(notas: Note[]): Note[] {
@@ -171,6 +206,12 @@ export class TauriNotesRepository implements NotesRepository {
         if (esNueva) {
             const carpeta = nota.categoriaId === SIN_CATEGORIA ? raiz : `${raiz}\\${nota.categoriaId}`;
             ruta = await this.rutaLibre(carpeta, sanearNombreArchivo(nota.titulo), '.md');
+        } else if (await this.cambioSinRevisar(ruta)) {
+            // El watcher avisa con retraso: el archivo puede haber cambiado por fuera sin que la
+            // app lo sepa todavía. No se escribe encima; el cambio queda pendiente de revisar
+            // para que el usuario decida qué versión conservar.
+            this.pendientes.add(ruta);
+            throw new Error('el archivo cambió fuera de Notara y no se sobrescribió');
         } else if (this.cache.get(nota.id)?.titulo !== nota.titulo) {
             const { carpeta, extension } = this.partes(ruta);
             const destino = await this.rutaLibre(carpeta, sanearNombreArchivo(nota.titulo), extension, ruta);
@@ -187,6 +228,8 @@ export class TauriNotesRepository implements NotesRepository {
         // Primero el contenido y después el nombre: si el renombrado falla, lo escrito ya está a salvo.
         await this.escribirSeguro(ruta, texto);
         if (renombrarA) {
+            // Si el renombrado falla, que conste que lo escrito en la ruta de siempre es de la app.
+            await this.fechas(ruta);
             await rename(ruta, renombrarA);
             ruta = renombrarA;
         }
@@ -199,7 +242,7 @@ export class TauriNotesRepository implements NotesRepository {
             favorito: esTxt ? false : nota.favorito,
             ...(await this.fechas(ruta)),
         };
-        this.cache.delete(nota.id);
+        this.olvidar(nota.id);
         this.cache.set(guardada.id, guardada);
         return guardada;
     }
@@ -218,12 +261,12 @@ export class TauriNotesRepository implements NotesRepository {
 
         const { base, extension } = this.partes(id);
         await rename(id, await this.rutaLibre(destino, base, extension));
-        this.cache.delete(id);
+        this.olvidar(id);
     }
 
     async descartarNota(id: string): Promise<void> {
         await remove(id);
-        this.cache.delete(id);
+        this.olvidar(id);
         await this.quitarCarpetaDePapeleraVacia(this.partes(id).carpeta);
     }
 
@@ -251,11 +294,17 @@ export class TauriNotesRepository implements NotesRepository {
         const categoriaId = this.categoriaDe(id, `${raiz}\\${PAPELERA}`);
         const destino = categoriaId === SIN_CATEGORIA ? raiz : `${raiz}\\${categoriaId}`;
         const categoriaRecreada = !(await exists(destino));
-        if (categoriaRecreada) await mkdir(destino);
+        if (categoriaRecreada) {
+            await mkdir(destino);
+            this.carpetas.add(categoriaId.toLowerCase());
+        }
 
         const { carpeta, base, extension } = this.partes(id);
-        await rename(id, await this.rutaLibre(destino, base, extension));
-        this.cache.delete(id);
+        const restaurada = await this.rutaLibre(destino, base, extension);
+        await rename(id, restaurada);
+        this.olvidar(id);
+        // Deja anotada la huella del archivo en su nueva ruta: lo puso ahí la app.
+        await this.fechas(restaurada);
         await this.quitarCarpetaDePapeleraVacia(carpeta);
         return { categoriaId, categoriaRecreada };
     }
@@ -276,7 +325,7 @@ export class TauriNotesRepository implements NotesRepository {
         const { base, extension } = this.partes(id);
         const ruta = await this.rutaLibre(destino, base, extension);
         await rename(id, ruta);
-        this.cache.delete(id);
+        this.olvidar(id);
 
         const nota = await this.leerNota(ruta, ruta.slice(ruta.lastIndexOf('\\') + 1), categoriaId);
         this.cache.set(nota.id, nota);
@@ -285,6 +334,80 @@ export class TauriNotesRepository implements NotesRepository {
 
     async mostrarEnExplorador(id: string): Promise<void> {
         await revealItemInDir(id);
+    }
+
+    async vigilar(alDetectar: () => void): Promise<() => void> {
+        const raiz = this.raiz;
+        if (!raiz) throw new Error('No hay una carpeta de notas configurada');
+
+        // Lo anotado era de la carpeta raíz anterior.
+        this.pendientes.clear();
+        this.huellas.clear();
+        return watch(
+            raiz,
+            (evento) => {
+                // Leer un archivo no lo cambia.
+                if (typeof evento.type === 'object' && 'access' in evento.type) return;
+                const rutas = evento.paths
+                    // Windows puede dar la ruta en su forma extendida (\\?\C:\...).
+                    .map((ruta) => ruta.replace(/^\\\\\?\\/, ''))
+                    .filter((ruta) => clasificarRuta(ruta, raiz));
+                if (!rutas.length) return;
+                rutas.forEach((ruta) => this.pendientes.add(ruta));
+                alDetectar();
+            },
+            { recursive: true, delayMs: ESPERA_WATCHER }
+        );
+    }
+
+    async cambiosExternos(): Promise<CambioExterno> {
+        const cambio: CambioExterno = { notas: [], carpetas: false };
+        const raiz = this.raiz;
+        const rutas = [...this.pendientes];
+        this.pendientes.clear();
+        if (!raiz) return cambio;
+
+        for (const ruta of rutas) {
+            const info = await stat(ruta).catch(() => null);
+            const clave = ruta.toLowerCase();
+
+            if (clasificarRuta(ruta, raiz) === 'nota') {
+                const actual = info?.isFile ? this.huella(info) : undefined;
+                // Coincide con lo que la app leyó o escribió (o no existe ni se la esperaba): el
+                // aviso venía de un guardado, un renombrado o un borrado propios.
+                if (this.huellas.get(clave) === actual) continue;
+                // Anotado, para dar cada cambio una sola vez.
+                if (actual) this.huellas.set(clave, actual);
+                else this.huellas.delete(clave);
+                cambio.notas.push({ id: ruta, categoriaId: this.categoriaDe(ruta, raiz) });
+            } else {
+                const nombre = ruta.slice(ruta.lastIndexOf('\\') + 1).toLowerCase();
+                const existe = !!info?.isDirectory;
+                if (existe === this.carpetas.has(nombre)) continue;
+                if (existe) this.carpetas.add(nombre);
+                else this.carpetas.delete(nombre);
+                cambio.carpetas = true;
+            }
+        }
+        return cambio;
+    }
+
+    // El archivo ya no está como la app lo leyó o lo escribió por última vez.
+    private async cambioSinRevisar(ruta: string): Promise<boolean> {
+        const conocida = this.huellas.get(ruta.toLowerCase());
+        if (!conocida) return false;
+        const info = await stat(ruta).catch(() => null);
+        return (info?.isFile ? this.huella(info) : undefined) !== conocida;
+    }
+
+    private huella(info: { mtime: Date | null; size: number }): string {
+        return `${info.mtime?.getTime()}:${info.size}`;
+    }
+
+    // La nota deja de estar en esa ruta porque la app la movió, la renombró o la borró.
+    private olvidar(id: string): void {
+        this.cache.delete(id);
+        this.huellas.delete(id.toLowerCase());
     }
 
     // Categoría a la que corresponde un archivo según su carpeta: directamente en `base` es una
@@ -354,10 +477,13 @@ export class TauriNotesRepository implements NotesRepository {
         };
     }
 
-    // Fechas de modificación y de creación del archivo según el sistema de archivos.
+    // Fechas de modificación y de creación del archivo según el sistema de archivos. De paso
+    // anota su huella: es el estado del archivo que la app conoce.
     private async fechas(ruta: string): Promise<{ editadaEn: Date; creadaEn: Date }> {
-        const { mtime, birthtime } = await stat(ruta);
+        const info = await stat(ruta);
+        const { mtime, birthtime } = info;
         if (!mtime) throw new Error(`El sistema de archivos no informa la fecha de modificación de ${ruta}`);
+        this.huellas.set(ruta.toLowerCase(), this.huella(info));
         // No todos los sistemas de archivos registran la creación; la edición es lo más parecido.
         return { editadaEn: mtime, creadaEn: birthtime ?? mtime };
     }

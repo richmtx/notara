@@ -1,9 +1,15 @@
 <section class="lista">
     <div class="buscador">
         <div class="campo">
-            <i class="ti ti-search"></i>
-            <input type="text" [placeholder]="'Buscar notas en ' + (notes.nombreVista() ?? 'todo') + '...'"
-                [ngModel]="notes.filtroBusqueda()" (ngModelChange)="notes.filtroBusqueda.set($event)" />
+            <i class="ti ti-search" aria-hidden="true"></i>
+            <input #campoBusqueda type="text" [placeholder]="textoAyuda()" [attr.aria-label]="textoAyuda()" title="Buscar (Ctrl+K)"
+                [ngModel]="notes.filtroBusqueda()" (ngModelChange)="notes.buscar($event)"
+                (keydown.escape)="limpiar()" />
+            @if (notes.filtroBusqueda()) {
+            <button class="limpiar" title="Limpiar la búsqueda" aria-label="Limpiar la búsqueda" (click)="limpiar()">
+                <i class="ti ti-x" aria-hidden="true"></i>
+            </button>
+            }
         </div>
         <div class="ancla" (appCerrarAlSalir)="menuOrden.set(false)">
             <button class="filtro" [class.abierto]="menuOrden()" title="Ordenar" aria-label="Ordenar notas"
@@ -62,7 +68,7 @@
                 </span>
             </div>
             <p class="preview">{{ preview(nota.contenido) }}</p>
-            @if (notes.enFavoritos() || notes.enPapelera()) {
+            @if (notes.enFavoritos() || notes.enPapelera() || notes.buscandoGlobal()) {
             <p class="origen">
                 <i class="ti ti-folder" aria-hidden="true"></i>
                 {{ notes.nombreCategoria(nota.categoriaId) }}
@@ -71,8 +77,10 @@
         </button>
         } @empty {
         <p class="vacio">
-            @if (notes.filtroBusqueda()) {
-            Sin resultados para esa búsqueda.
+            @if (notes.indexando()) {
+            Buscando en todas las notas...
+            } @else if (notes.filtroBusqueda()) {
+            {{ notes.enPapelera() ? 'Sin resultados en la papelera.' : 'Sin resultados en ninguna categoría.' }}
             } @else if (notes.enFavoritos()) {
             Aún no hay notas favoritas. Márcalas con la estrella del visor.
             } @else if (notes.enPapelera()) {

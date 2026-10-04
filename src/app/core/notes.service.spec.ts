@@ -368,3 +368,378 @@ describe('NotesService: guardar sin releer el disco', () => {
     });
   });
 });
+
+describe('NotesService: búsqueda global', () => {
+  let notes: NotesService;
+  let repo: NotesRepository;
+  let listarTodas: jasmine.Spy;
+
+  // Datos de prueba: «trabajo» tiene las notas 1 y 2, «aws» la 3 y «proyectos» la 4.
+  const ids = () => notes.notasFiltradas().map((n) => n.id);
+
+  async function abrir(categoriaId: string, notaId: string): Promise<void> {
+    await notes.seleccionarCategoria(categoriaId);
+    await notes.seleccionarNota(notaId);
+  }
+
+  beforeEach(async () => {
+    TestBed.configureTestingModule({
+      providers: [{ provide: NOTES_REPOSITORY, useClass: MockNotesRepository }],
+    });
+    const settings = TestBed.inject(SettingsService);
+    spyOn(settings, 'cargar').and.resolveTo();
+    settings.carpetaRaiz.set('C:\notas');
+
+    repo = TestBed.inject(NOTES_REPOSITORY);
+    listarTodas = spyOn(repo, 'listarTodas').and.callThrough();
+    notes = TestBed.inject(NotesService);
+    await notes.inicializar();
+    await notes.seleccionarCategoria('trabajo');
+    listarTodas.calls.reset();
+  });
+
+  it('encuentra notas de otras categorías por título y por contenido', async () => {
+    await notes.buscar('aws');
+    expect(ids()).toEqual(['3']);
+    await notes.buscar('diseño');
+    expect(ids()).toEqual(['4']);
+    // Cada resultado dice de qué categoría es, que no es la activa.
+    expect(notes.buscandoGlobal()).toBeTrue();
+    expect(notes.nombreCategoria(notes.notasFiltradas()[0].categoriaId)).toBe('Proyectos');
+    expect(notes.categoriaActivaId()).toBe('trabajo');
+  });
+
+  it('al limpiar la búsqueda la lista vuelve a la categoría activa', async () => {
+    await notes.buscar('aws');
+    await notes.buscar('');
+    expect(notes.buscandoGlobal()).toBeFalse();
+    expect(ids()).toEqual(['1', '2']);
+  });
+
+  it('lee todas las notas una sola vez y después busca en memoria', async () => {
+    expect(listarTodas).not.toHaveBeenCalled();
+    await notes.buscar('a');
+    await notes.buscar('aw');
+    await notes.buscar('');
+    await notes.buscar('login');
+    expect(listarTodas).toHaveBeenCalledTimes(1);
+  });
+
+  it('un guardado actualiza el índice sin releer las notas', async () => {
+    await notes.buscar('aws');
+    await notes.buscar('');
+    await notes.seleccionarNota('1');
+    notes.editar();
+    notes.actualizarBorrador({ contenido: 'Ahora habla de zanahorias' });
+    expect(await notes.salirDeEdicion()).toBeTrue();
+
+    await notes.buscar('zanahorias');
+    expect(ids()).toEqual(['1']);
+    await notes.buscar('README');
+    expect(ids()).toEqual([]);
+    expect(listarTodas).toHaveBeenCalledTimes(1);
+  });
+
+  it('una nota abierta desde los resultados se edita sin cambiar de categoría', async () => {
+    await notes.buscar('aws');
+    await notes.seleccionarNota('3');
+    expect(notes.notaActiva()?.id).toBe('3');
+    notes.editar();
+    notes.actualizarBorrador({ contenido: 'Ruta de estudio para AWS, revisada' });
+    expect(await notes.salirDeEdicion()).toBeTrue();
+
+    expect((await repo.obtenerNota('3'))?.contenido).toBe('Ruta de estudio para AWS, revisada');
+    expect(notes.notaActiva()?.contenido).toBe('Ruta de estudio para AWS, revisada');
+    expect(notes.categoriaActivaId()).toBe('trabajo');
+    // La nota no se cuela en la lista de la categoría activa.
+    expect(notes.notas().map((n) => n.id).sort()).toEqual(['1', '2']);
+    expect(notes.categoriaActiva()?.total).toBe(2);
+  });
+
+  it('eliminar un resultado lo quita de la búsqueda', async () => {
+    await notes.buscar('a');
+    await notes.seleccionarNota('3');
+    await notes.eliminarNotaActiva();
+    expect(ids()).not.toContain('3');
+    expect(notes.notaActivaId()).toBeNull();
+    expect(notes.totalFavoritos()).toBe(0);
+  });
+
+  it('marcar como favorita desde los resultados, estando en Favoritos, la suma a la vista', async () => {
+    await notes.seleccionarCategoria(FAVORITOS);
+    await notes.buscar('login');
+    await notes.seleccionarNota('4');
+    expect(await notes.alternarFavorito()).toBeTrue();
+    expect(notes.totalFavoritos()).toBe(2);
+    await notes.buscar('');
+    expect(ids().sort()).toEqual(['3', '4']);
+  });
+
+  it('en la papelera la búsqueda no sale de la papelera', async () => {
+    await abrir('trabajo', '1');
+    await notes.eliminarNotaActiva();
+    await notes.seleccionarCategoria(PAPELERA);
+    listarTodas.calls.reset();
+
+    // «a» aparece en todas las notas, pero solo la 1 está en la papelera.
+    await notes.buscar('a');
+    expect(notes.buscandoGlobal()).toBeFalse();
+    expect(ids()).toEqual(['1']);
+    await notes.buscar('aws');
+    expect(ids()).toEqual([]);
+    expect(listarTodas).not.toHaveBeenCalled();
+  });
+
+  it('si no se pueden leer las notas lo dice y sigue buscando en la categoría activa', async () => {
+    listarTodas.and.rejectWith('disco no disponible');
+    await notes.buscar('perfil');
+    expect(notes.error()).toContain('disco no disponible');
+    expect(ids()).toEqual(['1']);
+  });
+});
+
+describe('NotesService: cambios hechos fuera de la app', () => {
+  let notes: NotesService;
+  let repo: MockNotesRepository;
+  let lecturas: jasmine.Spy[];
+
+  // Datos de prueba: «trabajo» tiene las notas 1 y 2, «aws» la 3 (favorita) y «proyectos» la 4.
+  const ids = () => notes.notasFiltradas().map((n) => n.id);
+  const enDisco = async (id: string) => (await repo.obtenerNota(id))!;
+
+  // La revisión de los cambios va en la misma cola que los guardados: cuando termina un guardado
+  // pedido después, ella ya terminó.
+  const revisado = () => notes.guardarAhora();
+
+  async function abrir(categoriaId: string, notaId: string): Promise<void> {
+    await notes.seleccionarCategoria(categoriaId);
+    await notes.seleccionarNota(notaId);
+    lecturas.forEach((espia) => espia.calls.reset());
+  }
+
+  async function editarPorFuera(id: string, contenido: string, avisar = true): Promise<void> {
+    repo.guardarPorFuera({ ...(await enDisco(id)), contenido, editadaEn: new Date() }, avisar);
+  }
+
+  beforeEach(async () => {
+    TestBed.configureTestingModule({
+      providers: [{ provide: NOTES_REPOSITORY, useClass: MockNotesRepository }],
+    });
+    const settings = TestBed.inject(SettingsService);
+    spyOn(settings, 'cargar').and.resolveTo();
+    settings.carpetaRaiz.set('C:\\notas');
+
+    repo = TestBed.inject(NOTES_REPOSITORY) as MockNotesRepository;
+    lecturas = [
+      spyOn(repo, 'listarCategorias').and.callThrough(),
+      spyOn(repo, 'listarNotas').and.callThrough(),
+      spyOn(repo, 'listarTodas').and.callThrough(),
+      spyOn(repo, 'listarPapelera').and.callThrough(),
+    ];
+    notes = TestBed.inject(NotesService);
+    await notes.inicializar();
+  });
+
+  it('los guardados de la propia app no provocan ningún refresco', async () => {
+    await abrir('trabajo', '1');
+    notes.editar();
+    notes.actualizarBorrador({ contenido: 'Primer guardado' });
+    await notes.guardarAhora();
+    // El watcher salta con cada escritura, también con las de la app.
+    repo.detectar();
+    await revisado();
+    notes.actualizarBorrador({ contenido: 'Segundo guardado' });
+    await notes.guardarAhora();
+    repo.detectar();
+    repo.detectar();
+    await revisado();
+
+    lecturas.forEach((espia) => expect(espia).not.toHaveBeenCalled());
+    expect(notes.conflicto()).toBeNull();
+    expect(notes.aviso()).toBeNull();
+    expect(notes.editando()).toBeTrue();
+    expect(notes.borrador()?.contenido).toBe('Segundo guardado');
+    expect((await enDisco('1')).contenido).toBe('Segundo guardado');
+  });
+
+  it('una nota creada por fuera aparece sin perder la selección', async () => {
+    await abrir('trabajo', '1');
+    repo.guardarPorFuera({ ...(await enDisco('2')), id: '9', titulo: 'Llegada de fuera' });
+    await revisado();
+
+    expect(ids()).toContain('9');
+    expect(notes.categoriaActiva()?.total).toBe(3);
+    expect(notes.categoriaActivaId()).toBe('trabajo');
+    expect(notes.notaActivaId()).toBe('1');
+  });
+
+  it('la nota abierta en lectura se actualiza con lo que cambió por fuera', async () => {
+    await abrir('trabajo', '1');
+    await editarPorFuera('1', 'Editada con otro programa');
+    await revisado();
+
+    expect(notes.notaActiva()?.contenido).toBe('Editada con otro programa');
+    expect(notes.contenidoHtml()).toContain('Editada con otro programa');
+    expect(notes.conflicto()).toBeNull();
+    expect(notes.aviso()).toContain('se actualizó');
+  });
+
+  it('un cambio en otra categoría no relee la vista activa pero sí los totales', async () => {
+    await abrir('trabajo', '1');
+    repo.eliminarPorFuera('4');
+    await revisado();
+
+    expect(repo.listarNotas).not.toHaveBeenCalled();
+    expect(notes.categorias().find((c) => c.id === 'proyectos')?.total).toBe(0);
+    expect(notes.notaActivaId()).toBe('1');
+  });
+
+  it('una favorita eliminada por fuera deja de contarse', async () => {
+    await abrir('trabajo', '1');
+    repo.eliminarPorFuera('3');
+    await revisado();
+    expect(notes.totalFavoritos()).toBe(0);
+  });
+
+  it('si la nota abierta en lectura se elimina por fuera, se cierra y se avisa', async () => {
+    await abrir('trabajo', '1');
+    repo.eliminarPorFuera('1');
+    await revisado();
+
+    expect(notes.notaActivaId()).toBeNull();
+    expect(ids()).toEqual(['2']);
+    expect(notes.aviso()).toContain('Perfil GitHub');
+    expect(notes.categoriaActivaId()).toBe('trabajo');
+  });
+
+  it('los resultados de una búsqueda global también se actualizan', async () => {
+    await notes.seleccionarCategoria('trabajo');
+    await notes.buscar('zanahorias');
+    expect(ids()).toEqual([]);
+    await editarPorFuera('4', 'Ahora habla de zanahorias');
+    await revisado();
+    expect(ids()).toEqual(['4']);
+    expect(notes.filtroBusqueda()).toBe('zanahorias');
+  });
+
+  describe('con la nota en edición', () => {
+    beforeEach(async () => {
+      await abrir('trabajo', '1');
+      notes.editar();
+      notes.actualizarBorrador({ contenido: 'Lo que estoy escribiendo' });
+    });
+
+    it('un cambio en otra nota no toca lo que se está escribiendo', async () => {
+      await editarPorFuera('2', 'Otra nota, editada por fuera');
+      await revisado();
+
+      expect(notes.conflicto()).toBeNull();
+      expect(notes.editando()).toBeTrue();
+      expect(notes.notas().find((n) => n.id === '2')?.contenido).toBe('Otra nota, editada por fuera');
+      // El borrador se guardó como siempre.
+      expect((await enDisco('1')).contenido).toBe('Lo que estoy escribiendo');
+    });
+
+    it('si la nota cambia por fuera avisa del conflicto y no pisa ninguna de las dos versiones', async () => {
+      await editarPorFuera('1', 'Versión de fuera');
+      await revisado();
+
+      expect(notes.conflicto()).toBe('modificada');
+      expect(notes.aviso()).toContain('cambió fuera de Notara');
+      expect(notes.editando()).toBeTrue();
+      expect(notes.borrador()?.contenido).toBe('Lo que estoy escribiendo');
+      expect((await enDisco('1')).contenido).toBe('Versión de fuera');
+
+      // Ni seguir escribiendo ni intentar salir guardan nada mientras no se resuelva.
+      notes.actualizarBorrador({ contenido: 'Sigo escribiendo' });
+      expect(await notes.salirDeEdicion()).toBeFalse();
+      expect(await notes.agregarEtiqueta('nueva')).toBeFalse();
+      expect(notes.editando()).toBeTrue();
+      expect((await enDisco('1')).contenido).toBe('Versión de fuera');
+      expect(notes.error()).toContain('elige');
+    });
+
+    it('conservar mi versión guarda el borrador y cierra el conflicto', async () => {
+      await editarPorFuera('1', 'Versión de fuera');
+      await revisado();
+      await notes.resolverConflicto('mia');
+
+      expect(notes.conflicto()).toBeNull();
+      expect(notes.editando()).toBeTrue();
+      expect((await enDisco('1')).contenido).toBe('Lo que estoy escribiendo');
+      expect(await notes.salirDeEdicion()).toBeTrue();
+    });
+
+    it('cargar la versión del disco descarta el borrador', async () => {
+      await editarPorFuera('1', 'Versión de fuera');
+      await revisado();
+      await notes.resolverConflicto('disco');
+
+      expect(notes.conflicto()).toBeNull();
+      expect(notes.editando()).toBeFalse();
+      expect(notes.notaActiva()?.contenido).toBe('Versión de fuera');
+      expect((await enDisco('1')).contenido).toBe('Versión de fuera');
+    });
+
+    it('un guardado que llega antes que el aviso del watcher tampoco pisa el cambio externo', async () => {
+      // El archivo ya cambió en disco, pero el watcher aún no lo ha notificado.
+      await editarPorFuera('1', 'Versión de fuera', false);
+      expect(await notes.salirDeEdicion()).toBeFalse();
+      await revisado();
+
+      expect((await enDisco('1')).contenido).toBe('Versión de fuera');
+      expect(notes.conflicto()).toBe('modificada');
+      expect(notes.borrador()?.contenido).toBe('Lo que estoy escribiendo');
+    });
+
+    it('si la nota se elimina por fuera sigue abierta, con lo escrito, hasta decidir', async () => {
+      repo.eliminarPorFuera('1');
+      await revisado();
+
+      expect(notes.conflicto()).toBe('eliminada');
+      expect(notes.notaActivaId()).toBe('1');
+      expect(notes.borrador()?.contenido).toBe('Lo que estoy escribiendo');
+      expect(await repo.obtenerNota('1')).toBeNull();
+
+      await notes.resolverConflicto('mia');
+      expect(notes.conflicto()).toBeNull();
+      expect((await enDisco('1')).contenido).toBe('Lo que estoy escribiendo');
+      expect(notes.categoriaActiva()?.total).toBe(2);
+    });
+
+    it('descartar una nota eliminada por fuera la cierra', async () => {
+      repo.eliminarPorFuera('1');
+      await revisado();
+      await notes.resolverConflicto('disco');
+
+      expect(notes.conflicto()).toBeNull();
+      expect(notes.editando()).toBeFalse();
+      expect(notes.notaActivaId()).toBeNull();
+      expect(ids()).toEqual(['2']);
+    });
+  });
+
+  it('al recargar la carpeta deja de vigilar la anterior', async () => {
+    const dejar = jasmine.createSpy('dejarDeVigilar');
+    const vigilar = spyOn(repo, 'vigilar').and.resolveTo(dejar);
+    await notes.recargar();
+    expect(dejar).not.toHaveBeenCalled();
+    await notes.recargar();
+    expect(vigilar).toHaveBeenCalledTimes(2);
+    expect(dejar).toHaveBeenCalledTimes(1);
+  });
+
+  it('si no se puede vigilar la carpeta lo dice, y la app sigue funcionando', async () => {
+    spyOn(repo, 'vigilar').and.rejectWith('permiso denegado');
+    await notes.recargar();
+    expect(notes.error()).toContain('permiso denegado');
+    expect(notes.categorias().length).toBeGreaterThan(0);
+  });
+
+  it('si no se pueden revisar los cambios lo dice', async () => {
+    spyOn(repo, 'cambiosExternos').and.rejectWith('disco no disponible');
+    repo.detectar();
+    await revisado();
+    expect(notes.error()).toContain('disco no disponible');
+  });
+});

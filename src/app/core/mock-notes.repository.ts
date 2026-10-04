@@ -1,5 +1,5 @@
 import { Injectable } from '@angular/core';
-import { ContenidoCategoria, EliminacionCategoria, NotesRepository, Restauracion } from './notes.repository';
+import { CambioExterno, ContenidoCategoria, EliminacionCategoria, NotesRepository, Restauracion } from './notes.repository';
 import { Note } from '../models/note.model';
 import { Category, SIN_CATEGORIA } from '../models/category.model';
 
@@ -64,6 +64,8 @@ export class MockNotesRepository implements NotesRepository {
     private categorias = [...CATEGORIAS];
     private papelera: Note[] = [];
     private ultimoGuardado = 0;
+    private alDetectar: (() => void) | null = null;
+    private cambioPendiente: CambioExterno = { notas: [], carpetas: false };
 
     async listarCategorias(): Promise<Category[]> {
         return this.categorias.map((c) => ({
@@ -106,10 +108,12 @@ export class MockNotesRepository implements NotesRepository {
             .sort((a, b) => b.editadaEn.getTime() - a.editadaEn.getTime());
     }
 
+    async listarTodas(): Promise<Note[]> {
+        return [...this.notas].sort((a, b) => b.editadaEn.getTime() - a.editadaEn.getTime());
+    }
+
     async listarFavoritas(): Promise<Note[]> {
-        return this.notas
-            .filter((n) => n.favorito)
-            .sort((a, b) => b.editadaEn.getTime() - a.editadaEn.getTime());
+        return (await this.listarTodas()).filter((n) => n.favorito);
     }
 
     async obtenerNota(id: string): Promise<Note | null> {
@@ -117,6 +121,10 @@ export class MockNotesRepository implements NotesRepository {
     }
 
     async guardarNota(nota: Note): Promise<Note> {
+        // Como el repositorio real: no se escribe encima de un cambio externo sin revisar.
+        if (this.cambioPendiente.notas.some((n) => n.id === nota.id)) {
+            throw new Error('el archivo cambió fuera de Notara y no se sobrescribió');
+        }
         // Dos guardados seguidos pueden caer en el mismo milisegundo: el segundo tiene que
         // quedar igualmente como el más reciente, o el orden por fecha de edición empata.
         this.ultimoGuardado = Math.max(Date.now(), this.ultimoGuardado + 1);
@@ -169,5 +177,45 @@ export class MockNotesRepository implements NotesRepository {
 
     async mostrarEnExplorador(): Promise<void> {
         // Las notas de prueba no tienen archivo que mostrar.
+    }
+
+    async vigilar(alDetectar: () => void): Promise<() => void> {
+        this.alDetectar = alDetectar;
+        return () => {
+            if (this.alDetectar === alDetectar) this.alDetectar = null;
+        };
+    }
+
+    async cambiosExternos(): Promise<CambioExterno> {
+        const cambio = this.cambioPendiente;
+        this.cambioPendiente = { notas: [], carpetas: false };
+        return cambio;
+    }
+
+    // Lo que sigue hace de «otro programa» tocando la carpeta de notas, para las pruebas.
+
+    // Aviso del watcher sin más: el real también salta con los guardados de la propia app.
+    detectar(): void {
+        this.alDetectar?.();
+    }
+
+    // `avisar: false` = el cambio ya está en disco pero el watcher todavía no lo ha notificado.
+    guardarPorFuera(nota: Note, avisar = true): void {
+        const i = this.notas.findIndex((n) => n.id === nota.id);
+        if (i >= 0) this.notas[i] = nota;
+        else this.notas.push(nota);
+        this.cambiarPorFuera(nota, avisar);
+    }
+
+    eliminarPorFuera(id: string, avisar = true): void {
+        const nota = this.notas.find((n) => n.id === id);
+        if (!nota) return;
+        this.notas = this.notas.filter((n) => n !== nota);
+        this.cambiarPorFuera(nota, avisar);
+    }
+
+    private cambiarPorFuera({ id, categoriaId }: Note, avisar: boolean): void {
+        this.cambioPendiente.notas.push({ id, categoriaId });
+        if (avisar) this.detectar();
     }
 }
