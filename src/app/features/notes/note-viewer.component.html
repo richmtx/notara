@@ -1,50 +1,126 @@
-@if (notes.notaActiva(); as nota) {
 <article class="visor">
     <header class="barra">
-        <button class="primario" disabled>
-            <i class="ti ti-plus"></i>
+        <span class="estado" role="status" aria-live="polite">
+            @switch (notes.estadoGuardado()) {
+            @case ('pendiente') { Guardando... }
+            @case ('guardando') { Guardando... }
+            @case ('guardado') { <i class="ti ti-check" aria-hidden="true"></i> Guardado }
+            @case ('error') { <i class="ti ti-alert-circle" aria-hidden="true"></i> Sin guardar }
+            }
+        </span>
+
+        @if (confirmandoDescartar()) {
+        <div class="confirmar" role="group" aria-label="Confirmar descarte">
+            <span>¿Descartar esta nota? Se perderá lo escrito.</span>
+            <button class="secundario" (click)="confirmandoDescartar.set(false)">Seguir editando</button>
+            <button class="peligro" (click)="descartar()">Descartar</button>
+        </div>
+        } @else {
+        @if (notes.creando()) {
+        <button class="cancelar" title="Cancelar la nota nueva" (click)="cancelarCreacion()">Cancelar</button>
+        } @else {
+        <button class="primario" (click)="notes.crearNota()">
+            <i class="ti ti-plus" aria-hidden="true"></i>
             <span>Nueva nota</span>
         </button>
+        }
+
+        @if (notes.notaActiva(); as nota) {
         <span class="divisor"></span>
-        <div class="acciones">
-            <button disabled title="Editar"><i class="ti ti-pencil"></i></button>
-            <button disabled title="Favorito"><i class="ti ti-star"></i></button>
-            <button disabled title="Eliminar"><i class="ti ti-trash"></i></button>
-            <button disabled title="Más opciones"><i class="ti ti-dots-vertical"></i></button>
+        @if (confirmandoEliminar()) {
+        <div class="confirmar" role="group" aria-label="Confirmar eliminación">
+            <span>¿Mover a la papelera?</span>
+            <button class="secundario" (click)="confirmandoEliminar.set(false)">Cancelar</button>
+            <button class="peligro" (click)="eliminar()">Eliminar</button>
         </div>
+        } @else {
+        <div class="acciones">
+            <button [class.activo]="notes.editando()" [attr.aria-pressed]="notes.editando()"
+                [title]="notes.editando() ? 'Salir de edición' : 'Editar'"
+                [attr.aria-label]="notes.editando() ? 'Salir de edición' : 'Editar'" (click)="alternarEdicion()">
+                <i class="ti" [class.ti-pencil]="!notes.editando()" [class.ti-eye]="notes.editando()"
+                    aria-hidden="true"></i>
+            </button>
+            <button [class.activo]="nota.favorito" [attr.aria-pressed]="nota.favorito"
+                [disabled]="notes.notaActivaEsTextoPlano()"
+                [title]="notes.notaActivaEsTextoPlano() ? 'Las notas .txt no admiten favorito' : (nota.favorito ? 'Quitar de favoritos' : 'Marcar como favorito')"
+                aria-label="Favorito" (click)="notes.alternarFavorito()">
+                <i class="ti" [class.ti-star]="!nota.favorito" [class.ti-star-filled]="nota.favorito"
+                    aria-hidden="true"></i>
+            </button>
+            <button title="Eliminar" aria-label="Eliminar" (click)="confirmandoEliminar.set(true)">
+                <i class="ti ti-trash" aria-hidden="true"></i>
+            </button>
+            <button disabled title="Más opciones" aria-label="Más opciones">
+                <i class="ti ti-dots-vertical" aria-hidden="true"></i>
+            </button>
+        </div>
+        }
+        }
+        }
     </header>
 
+    @if (notes.notaActiva(); as nota) {
     <div class="cuerpo">
+        @if (notes.borrador(); as borrador) {
+        <input #campoTitulo class="titulo-editable" type="text" aria-label="Título de la nota"
+            placeholder="Nota sin título" [value]="borrador.titulo"
+            (input)="notes.actualizarBorrador({ titulo: valor($event) })" />
+        } @else {
         <h1>{{ nota.titulo }}</h1>
+        }
         <p class="meta">
             {{ notes.categoriaActiva()?.nombre }}
             <span class="sep">|</span>
             Editada el {{ nota.editadaEn | date: "d 'de' MMMM 'de' y" }}
         </p>
 
+        @if (notes.borrador(); as borrador) {
+        <textarea #campoContenido class="editor" aria-label="Contenido de la nota" placeholder="Escribe aquí..."
+            spellcheck="true" lang="es" [value]="borrador.contenido"
+            (input)="notes.actualizarBorrador({ contenido: valor($event) })"></textarea>
+        } @else {
         <div class="contenido" [innerHTML]="notes.contenidoHtml()"></div>
+        }
 
         <div class="etiquetas">
             <p class="titulo-etiquetas">Etiquetas</p>
+            @if (notes.notaActivaEsTextoPlano()) {
+            <p class="pista">
+                <i class="ti ti-info-circle" aria-hidden="true"></i>
+                Las notas .txt se guardan como texto plano, así que no admiten etiquetas ni favorito.
+            </p>
+            } @else {
             <div class="fila-tags">
                 <div class="tags">
                     @for (tag of nota.tags; track tag) {
                     <span class="tag">
                         {{ tag }}
-                        <button class="quitar" disabled title="Quitar etiqueta">
-                            <i class="ti ti-x"></i>
+                        <button class="quitar" title="Quitar etiqueta" [attr.aria-label]="'Quitar etiqueta ' + tag"
+                            (click)="notes.quitarEtiqueta(tag)">
+                            <i class="ti ti-x" aria-hidden="true"></i>
                         </button>
                     </span>
                     }
+                    @if (agregandoEtiqueta()) {
+                    <input #campoEtiqueta class="tag-nueva" type="text" aria-label="Nueva etiqueta"
+                        placeholder="Nueva etiqueta" maxlength="40" (keydown.enter)="confirmarEtiqueta(valor($event))"
+                        (keydown.escape)="agregandoEtiqueta.set(false)" (blur)="confirmarEtiqueta(valor($event))" />
+                    }
                 </div>
-                <button class="agregar" disabled>
-                    <i class="ti ti-circle-plus"></i>
+                <button class="agregar" (click)="agregandoEtiqueta.set(true)">
+                    <i class="ti ti-circle-plus" aria-hidden="true"></i>
                     <span>Agregar etiqueta</span>
                 </button>
             </div>
+            }
         </div>
     </div>
+    } @else {
+    <div class="sin-nota">
+        <i class="ti ti-notes" aria-hidden="true"></i>
+        <p class="sin-nota-titulo">Ninguna nota seleccionada</p>
+        <p class="sin-nota-texto">Elige una nota de la lista o crea una con «Nueva nota».</p>
+    </div>
+    }
 </article>
-} @else {
-<div class="sin-nota">Selecciona una nota para leerla.</div>
-}

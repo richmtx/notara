@@ -1,13 +1,13 @@
 import { Injectable, inject } from '@angular/core';
-import { readDir, readTextFile } from '@tauri-apps/plugin-fs';
+import { exists, mkdir, readDir, readTextFile, remove, rename, writeTextFile } from '@tauri-apps/plugin-fs';
 import { NotesRepository } from './notes.repository';
 import { SettingsService } from './settings.service';
-import { parsearFrontmatter } from './frontmatter';
+import { parsearFrontmatter, sanearNombreArchivo, serializarFrontmatter } from './frontmatter';
 import { Note } from '../models/note.model';
-import { Category } from '../models/category.model';
+import { Category, SIN_CATEGORIA } from '../models/category.model';
 
 const EXTENSIONES = ['.md', '.txt'];
-const SIN_CATEGORIA = '__sin_categoria__';
+const PAPELERA = '.papelera';
 
 @Injectable()
 export class TauriNotesRepository implements NotesRepository {
@@ -90,12 +90,108 @@ export class TauriNotesRepository implements NotesRepository {
         return this.cache.get(id) ?? null;
     }
 
-    async guardarNota(_nota: Note): Promise<void> {
-        throw new Error('La escritura llega en la fase 2');
+    async guardarNota(nota: Note): Promise<Note> {
+        const raiz = this.raiz;
+        if (!raiz) throw new Error('No hay una carpeta de notas configurada');
+
+        const esNueva = !nota.rutaArchivo;
+        let ruta = nota.rutaArchivo;
+        let renombrarA: string | null = null;
+
+        if (esNueva) {
+            const carpeta = nota.categoriaId === SIN_CATEGORIA ? raiz : `${raiz}\\${nota.categoriaId}`;
+            ruta = await this.rutaLibre(carpeta, sanearNombreArchivo(nota.titulo), '.md');
+        } else if (this.cache.get(nota.id)?.titulo !== nota.titulo) {
+            const { carpeta, extension } = this.partes(ruta);
+            const destino = await this.rutaLibre(carpeta, sanearNombreArchivo(nota.titulo), extension, ruta);
+            if (destino !== ruta) renombrarA = destino;
+        }
+
+        const esTxt = ruta.toLowerCase().endsWith('.txt');
+        let texto = nota.contenido;
+        if (!esTxt) {
+            const meta = { titulo: nota.titulo, tags: nota.tags, favorito: nota.favorito };
+            texto = serializarFrontmatter(meta, nota.contenido, esNueva ? [] : await this.otrasLineas(ruta));
+        }
+
+        // Primero el contenido y después el nombre: si el renombrado falla, lo escrito ya está a salvo.
+        await this.escribirSeguro(ruta, texto);
+        if (renombrarA) {
+            await rename(ruta, renombrarA);
+            ruta = renombrarA;
+        }
+
+        const guardada: Note = {
+            ...nota,
+            id: ruta,
+            rutaArchivo: ruta,
+            tags: esTxt ? [] : nota.tags,
+            favorito: esTxt ? false : nota.favorito,
+            editadaEn: new Date(),
+        };
+        this.cache.delete(nota.id);
+        this.cache.set(guardada.id, guardada);
+        return guardada;
     }
 
-    async eliminarNota(_id: string): Promise<void> {
-        throw new Error('La eliminación llega en la fase 2');
+    async eliminarNota(id: string): Promise<void> {
+        const raiz = this.raiz;
+        if (!raiz) throw new Error('No hay una carpeta de notas configurada');
+
+        const papelera = `${raiz}\\${PAPELERA}`;
+        if (!(await exists(papelera))) {
+            await mkdir(papelera);
+        }
+
+        const { base, extension } = this.partes(id);
+        await rename(id, await this.rutaLibre(papelera, base, extension));
+        this.cache.delete(id);
+    }
+
+    async descartarNota(id: string): Promise<void> {
+        await remove(id);
+        this.cache.delete(id);
+    }
+
+    // Nunca se escribe sobre el original: un fallo a medio guardado solo afecta al temporal.
+    private async escribirSeguro(ruta: string, texto: string): Promise<void> {
+        const temporal = `${ruta}.tmp`;
+        try {
+            await writeTextFile(temporal, texto);
+            await rename(temporal, ruta);
+        } catch (e) {
+            await remove(temporal).catch(() => undefined);
+            throw e;
+        }
+    }
+
+    private async otrasLineas(ruta: string): Promise<string[]> {
+        try {
+            return parsearFrontmatter(await readTextFile(ruta)).otros;
+        } catch {
+            return [];
+        }
+    }
+
+    // Primera ruta disponible en la carpeta, agregando sufijo numérico si el nombre ya existe.
+    // `actual` es la ruta del propio archivo, que no cuenta como colisión.
+    private async rutaLibre(carpeta: string, base: string, extension: string, actual?: string): Promise<string> {
+        for (let n = 1; ; n++) {
+            const candidata = `${carpeta}\\${n === 1 ? base : `${base}-${n}`}${extension}`;
+            if (actual && candidata.toLowerCase() === actual.toLowerCase()) return candidata;
+            if (!(await exists(candidata))) return candidata;
+        }
+    }
+
+    private partes(ruta: string): { carpeta: string; base: string; extension: string } {
+        const corte = ruta.lastIndexOf('\\');
+        const nombre = ruta.slice(corte + 1);
+        const punto = nombre.lastIndexOf('.');
+        return {
+            carpeta: ruta.slice(0, corte),
+            base: punto > 0 ? nombre.slice(0, punto) : nombre,
+            extension: punto > 0 ? nombre.slice(punto) : '',
+        };
     }
 
     private async leerNota(ruta: string, nombre: string, categoriaId: string): Promise<Note> {
@@ -105,7 +201,7 @@ export class TauriNotesRepository implements NotesRepository {
 
         return {
             id: ruta,
-            titulo: meta.titulo ?? sinExtension,
+            titulo: meta.titulo || sinExtension,
             contenido,
             categoriaId,
             tags: meta.tags,

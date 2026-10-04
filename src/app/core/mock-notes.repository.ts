@@ -72,13 +72,19 @@ export class MockNotesRepository implements NotesRepository {
         return this.notas.find((n) => n.id === id) ?? null;
     }
 
-    async guardarNota(nota: Note): Promise<void> {
+    async guardarNota(nota: Note): Promise<Note> {
+        const guardada = { ...nota, editadaEn: new Date() };
         const i = this.notas.findIndex((n) => n.id === nota.id);
-        if (i >= 0) this.notas[i] = nota;
-        else this.notas.push(nota);
+        if (i >= 0) this.notas[i] = guardada;
+        else this.notas.push(guardada);
+        return guardada;
     }
 
     async eliminarNota(id: string): Promise<void> {
         this.notas = this.notas.filter((n) => n.id !== id);
+    }
+
+    async descartarNota(id: string): Promise<void> {
+        await this.eliminarNota(id);
     }
 }
