@@ -1,11 +1,12 @@
 import { Component, ElementRef, effect, inject, signal, untracked, viewChild } from '@angular/core';
 import { DatePipe } from '@angular/common';
 import { NotesService } from '../../core/notes.service';
+import { MarkdownEditorComponent } from './markdown-editor.component';
 
 @Component({
   selector: 'app-note-viewer',
   standalone: true,
-  imports: [DatePipe],
+  imports: [DatePipe, MarkdownEditorComponent],
   templateUrl: './note-viewer.component.html',
   styleUrl: './note-viewer.component.css',
 })
@@ -33,12 +34,13 @@ export class NoteViewerComponent {
     });
 
     // Al entrar en edición el foco va al contenido, o al título si la nota es nueva.
+    // El editor enriquecido se enfoca solo al montarse (autofoco).
     effect(() => {
       const titulo = this.campoTitulo();
-      const contenido = this.campoContenido();
-      if (!titulo || !contenido) return;
+      if (!titulo) return;
       const sinTitulo = untracked(() => !this.notes.borrador()?.titulo);
-      (sinTitulo ? titulo : contenido).nativeElement.focus();
+      if (sinTitulo) titulo.nativeElement.focus();
+      else this.campoContenido()?.nativeElement.focus();
     });
 
     effect(() => this.campoEtiqueta()?.nativeElement.focus());

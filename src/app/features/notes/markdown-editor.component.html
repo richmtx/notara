@@ -1,0 +1,15 @@
+<div class="herramientas" role="toolbar" aria-label="Formato del texto">
+    @for (grupo of grupos; track $index) {
+    @if (!$first) {
+    <span class="divisor" aria-hidden="true"></span>
+    }
+    @for (control of grupo; track control.icono) {
+    <button type="button" [class.activo]="control.activo()" [attr.aria-pressed]="control.activo()"
+        [attr.aria-label]="control.etiqueta" [title]="titulo(control)" (mousedown)="$event.preventDefault()"
+        (click)="control.accion()">
+        <i class="ti ti-{{ control.icono }}" aria-hidden="true"></i>
+    </button>
+    }
+    }
+</div>
+<div #anfitrion class="anfitrion"></div>

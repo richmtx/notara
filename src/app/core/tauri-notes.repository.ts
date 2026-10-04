@@ -1,5 +1,5 @@
 import { Injectable, inject } from '@angular/core';
-import { exists, mkdir, readDir, readTextFile, remove, rename, writeTextFile } from '@tauri-apps/plugin-fs';
+import { exists, mkdir, readDir, readTextFile, remove, rename, stat, writeTextFile } from '@tauri-apps/plugin-fs';
 import { NotesRepository } from './notes.repository';
 import { SettingsService } from './settings.service';
 import { parsearFrontmatter, sanearNombreArchivo, serializarFrontmatter } from './frontmatter';
@@ -127,7 +127,7 @@ export class TauriNotesRepository implements NotesRepository {
             rutaArchivo: ruta,
             tags: esTxt ? [] : nota.tags,
             favorito: esTxt ? false : nota.favorito,
-            editadaEn: new Date(),
+            editadaEn: await this.fechaModificacion(ruta),
         };
         this.cache.delete(nota.id);
         this.cache.set(guardada.id, guardada);
@@ -194,8 +194,15 @@ export class TauriNotesRepository implements NotesRepository {
         };
     }
 
+    // Fecha de modificación del archivo según el sistema de archivos.
+    private async fechaModificacion(ruta: string): Promise<Date> {
+        const { mtime } = await stat(ruta);
+        if (!mtime) throw new Error(`El sistema de archivos no informa la fecha de modificación de ${ruta}`);
+        return mtime;
+    }
+
     private async leerNota(ruta: string, nombre: string, categoriaId: string): Promise<Note> {
-        const texto = await readTextFile(ruta);
+        const [texto, editadaEn] = await Promise.all([readTextFile(ruta), this.fechaModificacion(ruta)]);
         const { meta, contenido } = parsearFrontmatter(texto);
         const sinExtension = nombre.replace(/\.(md|txt)$/i, '');
 
@@ -206,7 +213,7 @@ export class TauriNotesRepository implements NotesRepository {
             categoriaId,
             tags: meta.tags,
             favorito: meta.favorito,
-            editadaEn: new Date(),
+            editadaEn,
             rutaArchivo: ruta,
         };
     }

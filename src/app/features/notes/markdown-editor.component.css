@@ -1,0 +1,61 @@
+:host {
+    display: block;
+}
+
+/* Se queda a la vista al desplazarse por una nota larga. */
+.herramientas {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    margin-left: -6px;
+    padding: 6px 0 2px;
+    background: var(--bg-contenido);
+}
+
+.herramientas button {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border: none;
+    background: none;
+    border-radius: 4px;
+    color: var(--text-muted);
+    transition: background-color 150ms ease-out, color 150ms ease-out;
+}
+
+.herramientas i {
+    font-size: 16px;
+}
+
+.herramientas button:hover {
+    background: var(--hover);
+    color: var(--text);
+}
+
+.herramientas button.activo {
+    background: var(--accent-soft);
+    color: var(--accent);
+}
+
+.herramientas button:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+}
+
+.divisor {
+    width: 1px;
+    height: 16px;
+    margin: 0 6px;
+    background: var(--border);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .herramientas button {
+        transition: none;
+    }
+}

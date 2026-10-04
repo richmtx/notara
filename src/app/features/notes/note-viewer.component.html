@@ -76,11 +76,22 @@
         </p>
 
         @if (notes.borrador(); as borrador) {
+        @if (notes.edicionEnriquecida()) {
+        <app-markdown-editor [contenido]="borrador.contenido" [autofoco]="!!borrador.titulo"
+            (cambio)="notes.actualizarBorrador({ contenido: $event })" (fallo)="notes.usarEdicionPlana($event)" />
+        } @else {
+        @if (!notes.notaActivaEsTextoPlano()) {
+        <p class="pista aviso-plano">
+            <i class="ti ti-info-circle" aria-hidden="true"></i>
+            Esta nota tiene Markdown que el editor visual no puede conservar intacto, así que se edita como texto.
+        </p>
+        }
         <textarea #campoContenido class="editor" aria-label="Contenido de la nota" placeholder="Escribe aquí..."
             spellcheck="true" lang="es" [value]="borrador.contenido"
             (input)="notes.actualizarBorrador({ contenido: valor($event) })"></textarea>
+        }
         } @else {
-        <div class="contenido" [innerHTML]="notes.contenidoHtml()"></div>
+        <div class="prosa" [innerHTML]="notes.contenidoHtml()"></div>
         }
 
         <div class="etiquetas">

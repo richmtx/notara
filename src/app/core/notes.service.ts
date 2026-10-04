@@ -3,6 +3,7 @@ import { open } from '@tauri-apps/plugin-dialog';
 import { marked } from 'marked';
 import { NOTES_REPOSITORY } from './notes.repository';
 import { SettingsService } from './settings.service';
+import { idaYVueltaSegura } from './markdown-editor';
 import { Note, TITULO_POR_DEFECTO, crearNotaVacia, esTextoPlano } from '../models/note.model';
 import { Category, SIN_CATEGORIA } from '../models/category.model';
 
@@ -35,6 +36,8 @@ export class NotesService {
     readonly estadoGuardado = signal<EstadoGuardado>('inactivo');
     // La nota en edición se acaba de crear y todavía puede cancelarse sin dejar rastro.
     readonly creando = signal(false);
+    // true = editor enriquecido; false = texto plano (.txt, o Markdown que el editor no conservaría).
+    readonly edicionEnriquecida = signal(false);
 
     private temporizador: ReturnType<typeof setTimeout> | null = null;
     // Las escrituras van en serie: guardar puede renombrar el archivo y cambiar el id de la nota.
@@ -55,10 +58,18 @@ export class NotesService {
         return !!nota && esTextoPlano(nota);
     });
 
+    // Las notas llegan ordenadas por fecha de edición. La que se está creando va siempre
+    // primero, aunque algún archivo tenga una fecha posterior a la del reloj.
+    private readonly notasOrdenadas = computed(() => {
+        const notas = this.notas();
+        const nueva = this.creando() ? notas.find((n) => n.id === this.notaActivaId()) : undefined;
+        return nueva ? [nueva, ...notas.filter((n) => n !== nueva)] : notas;
+    });
+
     readonly notasFiltradas = computed(() => {
         const q = this.filtroBusqueda().trim().toLowerCase();
-        if (!q) return this.notas();
-        return this.notas().filter(
+        if (!q) return this.notasOrdenadas();
+        return this.notasOrdenadas().filter(
             (n) => n.titulo.toLowerCase().includes(q) || n.contenido.toLowerCase().includes(q)
         );
     });
@@ -135,6 +146,7 @@ export class NotesService {
             if (!creada) return;
             this.filtroBusqueda.set('');
             // Título vacío en el borrador: el campo muestra el placeholder y se escribe encima.
+            this.edicionEnriquecida.set(true);
             this.borrador.set({ titulo: '', contenido: creada.contenido });
             this.creando.set(true);
         });
@@ -164,7 +176,14 @@ export class NotesService {
         const nota = this.notaActiva();
         if (!nota || this.borrador()) return;
         this.estadoGuardado.set('inactivo');
+        this.edicionEnriquecida.set(!esTextoPlano(nota) && idaYVueltaSegura(nota.contenido));
         this.borrador.set({ titulo: nota.titulo, contenido: nota.contenido });
+    }
+
+    // El editor enriquecido falló: se avisa y se sigue editando el Markdown como texto.
+    usarEdicionPlana(motivo: string): void {
+        this.error.set(motivo);
+        this.edicionEnriquecida.set(false);
     }
 
     actualizarBorrador(cambios: Partial<Borrador>): void {
