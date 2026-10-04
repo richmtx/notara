@@ -1,0 +1,29 @@
+<header class="barra" data-tauri-drag-region="deep">
+    <div class="marca">
+        <img class="logo" src="logo.png" alt="" width="16" height="16" />
+        <span class="nombre">Notara</span>
+    </div>
+
+    <div class="controles">
+        <button class="control" title="Minimizar" aria-label="Minimizar" (click)="minimizar()">
+            <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
+                <path d="M0 5.5h10" />
+            </svg>
+        </button>
+        <button class="control" [title]="maximizada() ? 'Restaurar' : 'Maximizar'"
+            [attr.aria-label]="maximizada() ? 'Restaurar' : 'Maximizar'" (click)="alternarMaximizar()">
+            <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
+                @if (maximizada()) {
+                <path d="M0.5 2.5h7v7h-7z M2.5 2.5v-2h7v7h-2" />
+                } @else {
+                <path d="M0.5 0.5h9v9h-9z" />
+                }
+            </svg>
+        </button>
+        <button class="control cerrar" title="Cerrar" aria-label="Cerrar" (click)="cerrar()">
+            <svg class="aspa" width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
+                <path d="M0.5 0.5l9 9 M9.5 0.5l-9 9" />
+            </svg>
+        </button>
+    </div>
+</header>

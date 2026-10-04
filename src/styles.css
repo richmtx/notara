@@ -9,11 +9,14 @@
     --text-muted: #8a857c;
     --accent: #b8541f;
     --accent-soft: #f7e9e0;
+    /* Rojo del botón de cerrar de Windows al pasar el cursor. */
+    --cerrar: #c42b1c;
 
     --font-ui: 'Quicksand', system-ui, -apple-system, 'Segoe UI', sans-serif;
     --font-titulo: 'Quicksand', system-ui, sans-serif;
 
     --radius: 8px;
+    --alto-barra: 32px;
 }
 
 * {

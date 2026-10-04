@@ -57,6 +57,17 @@ describe('AppComponent', () => {
     expect(elemento().querySelector('app-welcome')).not.toBeNull();
   });
 
+  it('mantiene la barra de título en todas las pantallas', async () => {
+    fixture.detectChanges();
+    expect(elemento().querySelector('.arranque')).not.toBeNull();
+    expect(elemento().querySelector('app-titlebar')).not.toBeNull();
+
+    await arrancar();
+    expect(elemento().querySelector('app-welcome')).not.toBeNull();
+    expect(elemento().querySelector('app-titlebar')).not.toBeNull();
+    expect(elemento().querySelectorAll('app-titlebar button').length).toBe(3);
+  });
+
   it('muestra la bienvenida cuando no hay carpeta raíz configurada', async () => {
     await arrancar();
     expect(elemento().querySelector('app-welcome')).not.toBeNull();

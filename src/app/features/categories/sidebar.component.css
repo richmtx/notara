@@ -2,28 +2,9 @@
     display: flex;
     flex-direction: column;
     height: 100%;
-    padding: 18px 12px;
+    padding: 12px 12px 18px;
     border-right: 1px solid var(--border);
     background: var(--bg-sidebar);
-}
-
-.marca {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 0 8px 22px;
-}
-
-.logo {
-    width: 18px;
-    height: 18px;
-    border-radius: 4px;
-    background: var(--accent);
-}
-
-.nombre {
-    font-weight: 700;
-    font-size: 15px;
 }
 
 nav {
@@ -288,11 +269,6 @@ footer {
 
 .sidebar.colapsado {
     padding: 18px 8px;
-}
-
-.sidebar.colapsado .marca {
-    justify-content: center;
-    padding: 0 0 22px;
 }
 
 .sidebar.colapsado .item,

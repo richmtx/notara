@@ -1,7 +1,19 @@
+/* La barra de título arriba y, debajo, la pantalla que toque ocupando el resto de la ventana. */
+:host {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+}
+
+.contenido {
+    flex: 1;
+    min-height: 0;
+}
+
 .layout {
     display: grid;
     grid-template-columns: 230px 320px 1fr;
-    height: 100vh;
+    height: 100%;
     overflow: hidden;
 }
 
@@ -11,20 +23,19 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    height: 100vh;
+    height: 100%;
     animation: aparecer 200ms ease-out 250ms both;
 }
 
 .arranque .logo {
-    width: 42px;
-    height: 42px;
-    border-radius: 10px;
-    background: var(--accent);
+    width: 48px;
+    height: 48px;
     animation: latido 900ms ease-in-out 450ms infinite alternate;
 }
 
 app-welcome {
     display: block;
+    height: 100%;
 }
 
 .entrada {
