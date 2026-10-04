@@ -1,6 +1,9 @@
 {
   "name": "notara",
-  "version": "0.0.0",
+  "version": "1.0.0",
+  "description": "Notas en archivos Markdown, organizadas por carpetas",
+  "author": "Ricardo Martínez",
+  "license": "MIT",
   "scripts": {
     "ng": "ng",
     "start": "ng serve",

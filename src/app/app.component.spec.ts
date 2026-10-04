@@ -40,6 +40,23 @@ describe('AppComponent', () => {
     expect(settings.cargar).toHaveBeenCalled();
   });
 
+  it('no muestra la bienvenida mientras se leen los ajustes', async () => {
+    let terminarCarga!: () => void;
+    const carga = new Promise<void>((resolve) => (terminarCarga = resolve));
+    (settings.cargar as jasmine.Spy).and.returnValue(carga);
+
+    fixture.detectChanges();
+    expect(elemento().querySelector('app-welcome')).toBeNull();
+    expect(elemento().querySelector('.layout')).toBeNull();
+    expect(elemento().querySelector('.arranque')).not.toBeNull();
+
+    terminarCarga();
+    await fixture.whenStable();
+    fixture.detectChanges();
+    expect(elemento().querySelector('.arranque')).toBeNull();
+    expect(elemento().querySelector('app-welcome')).not.toBeNull();
+  });
+
   it('muestra la bienvenida cuando no hay carpeta raíz configurada', async () => {
     await arrancar();
     expect(elemento().querySelector('app-welcome')).not.toBeNull();

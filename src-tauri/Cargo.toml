@@ -1,10 +1,10 @@
 [package]
-name = "app"
-version = "0.1.0"
-description = "A Tauri App"
-authors = ["you"]
-license = ""
-repository = ""
+name = "notara"
+version = "1.0.0"
+description = "Notas en archivos Markdown, organizadas por carpetas"
+authors = ["Ricardo Martínez"]
+license = "MIT"
+repository = "https://github.com/richmtx/notara"
 edition = "2024"
 rust-version = "1.90"
 

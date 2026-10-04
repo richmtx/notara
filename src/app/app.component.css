@@ -5,6 +5,51 @@
     overflow: hidden;
 }
 
+/* Pantalla de arranque: solo la marca, sobre el mismo fondo que la bienvenida. Tarda en
+   aparecer para que una carga casi instantánea no llegue a mostrarla. */
+.arranque {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100vh;
+    animation: aparecer 200ms ease-out 250ms both;
+}
+
+.arranque .logo {
+    width: 42px;
+    height: 42px;
+    border-radius: 10px;
+    background: var(--accent);
+    animation: latido 900ms ease-in-out 450ms infinite alternate;
+}
+
+app-welcome {
+    display: block;
+}
+
+.entrada {
+    animation: aparecer 160ms ease-out;
+}
+
+@keyframes aparecer {
+    from {
+        opacity: 0;
+    }
+}
+
+@keyframes latido {
+    to {
+        opacity: 0.45;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .arranque .logo,
+    .entrada {
+        animation: none;
+    }
+}
+
 .error-global {
     position: fixed;
     bottom: 16px;

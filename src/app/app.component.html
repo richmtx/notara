@@ -1,15 +1,23 @@
-@if (!notes.carpetaRaiz()) {
-  <app-welcome />
-} @else {
-  <div class="layout">
-    <app-sidebar />
-    <app-note-list />
-    <app-note-viewer />
-  </div>
+@switch (notes.arranque()) {
+  @case ('resolviendo') {
+    <div class="arranque" role="status" aria-label="Cargando Notara">
+      <span class="logo"></span>
+    </div>
+  }
+  @case ('sin-carpeta') {
+    <app-welcome class="entrada" />
+  }
+  @case ('lista') {
+    <div class="layout entrada">
+      <app-sidebar />
+      <app-note-list />
+      <app-note-viewer />
+    </div>
 
-  @if (notes.error(); as err) {
-    <p class="error-global" role="alert">{{ err }}</p>
-  } @else if (notes.aviso()) {
-    <p class="error-global" role="status">{{ notes.aviso() }}</p>
+    @if (notes.error(); as err) {
+      <p class="error-global" role="alert">{{ err }}</p>
+    } @else if (notes.aviso()) {
+      <p class="error-global" role="status">{{ notes.aviso() }}</p>
+    }
   }
 }

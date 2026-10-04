@@ -15,6 +15,9 @@ export interface Borrador {
 
 export type EstadoGuardado = 'inactivo' | 'pendiente' | 'guardando' | 'guardado' | 'error';
 
+// 'resolviendo' = todavía no se sabe si hay carpeta configurada: los ajustes se leen de forma asíncrona.
+export type EstadoArranque = 'resolviendo' | 'sin-carpeta' | 'lista';
+
 const ESPERA_AUTOGUARDADO = 800;
 const DURACION_AVISO = 6000;
 
@@ -59,6 +62,13 @@ export class NotesService {
 
     readonly carpetaRaiz = computed(() => this.settings.carpetaRaiz());
     readonly orden = computed(() => this.settings.ordenNotas());
+
+    private readonly inicializando = signal(true);
+    // Hasta que termina inicializar(), una carpeta raíz nula no significa que no haya ninguna.
+    readonly arranque = computed<EstadoArranque>(() => {
+        if (this.inicializando()) return 'resolviendo';
+        return this.carpetaRaiz() ? 'lista' : 'sin-carpeta';
+    });
 
     readonly categoriaActiva = computed(
         () => this.categorias().find((c) => c.id === this.categoriaActivaId()) ?? null
@@ -116,9 +126,14 @@ export class NotesService {
     });
 
     async inicializar(): Promise<void> {
-        await this.settings.cargar();
-        if (this.settings.carpetaRaiz()) {
-            await this.recargar();
+        try {
+            await this.settings.cargar();
+            if (this.settings.carpetaRaiz()) {
+                await this.recargar();
+            }
+        } finally {
+            // También si la lectura falla: se cae a la bienvenida en vez de quedarse cargando.
+            this.inicializando.set(false);
         }
     }
 
