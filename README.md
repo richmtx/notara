@@ -8,8 +8,7 @@ Las notas rápidas acaban como archivos de texto sueltos en el escritorio: `nota
 
 Notara pone una interfaz encima de esos archivos —categorías, búsqueda, favoritos, etiquetas— sin sacarlos de donde están.
 
-<!-- Captura de pantalla o GIF: reemplaza la ruta cuando exista la imagen -->
-![Captura de Notara](docs/captura.png)
+![Notara en uso](docs/demo.gif)
 
 ## Funcionalidades
 
@@ -17,11 +16,14 @@ Notara pone una interfaz encima de esos archivos —categorías, búsqueda, favo
 - **Categorías**: cada una es una subcarpeta. Los archivos sueltos de la raíz aparecen en «Sin categoría».
 - **Editor enriquecido** con barra de formato, que guarda Markdown. Si una nota tiene Markdown que el editor no conservaría intacto, se edita como texto plano en lugar de alterarla.
 - **Autoguardado** mientras escribes.
-- **Búsqueda** por título y contenido dentro de la categoría abierta.
+- **Búsqueda** global por título y contenido, en todas las categorías.
 - **Favoritos** y **etiquetas**.
 - **Orden** por última edición, título o fecha de creación.
 - **Mover** notas entre categorías y **mostrar el archivo** en el Explorador.
 - **Papelera**: lo eliminado se puede restaurar a su categoría original o borrar definitivamente.
+- **Modo claro y oscuro**, o seguir el tema del sistema.
+- **Atajos de teclado** para crear, buscar, guardar y editar.
+- **Detecta cambios externos**: si editas un archivo fuera de Notara, la app se actualiza sola.
 - Lee y edita también archivos `.txt`.
 
 ## Los archivos son la fuente de verdad
